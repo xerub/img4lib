@@ -5,12 +5,12 @@
 CC = gcc
 CFLAGS = -Wall -W -pedantic
 CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unused-parameter
-CFLAGS += -O2 -m64 -I. -g -DiOS10 -Ilzfse/src
+CFLAGS += -O2 -I. -g -DiOS10 -Ilzfse/src
 CFLAGS += -DDER_MULTIBYTE_TAGS=1 -DDER_TAG_SIZE=8
 CFLAGS += -D__unused="__attribute__((unused))"
 
 LD = gcc
-LDFLAGS = -m64 -g -Llzfse/build/bin
+LDFLAGS = -g -Llzfse/build/bin
 LDLIBS = -llzfse
 
 SOURCES = \

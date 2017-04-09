@@ -513,6 +513,7 @@ Img4DecodeInit(DERByte *data, DERSize length, TheImg4 *img4)
     return 0;
 }
 
+#include <errno.h>
 #include <fcntl.h>
 #ifdef USE_CORECRYPTO
 #include <corecrypto/ccaes.h>
@@ -679,19 +680,22 @@ makePayload(DERItem *where, unsigned type, DERItem *version, DERItem *keybag, DE
 }
 
 static int
-makeRestoreInfo(DERItem *where, unsigned char nonce[])
+makeRestoreInfo(DERItem *where, uint64_t nonce)
 {
     int rv;
     char IM4R[] = "IM4R";
     char BNCN[] = "BNCN";
+    unsigned char tmp[8];
 
     DERItem item;
     DERItem elements[2];
     DERItem restoreInfo[2];
 
+    PUT_QWORD_BE(tmp, 0, nonce);
+
     elements[0].data = (DERByte *)BNCN;
     elements[0].length = sizeof(BNCN) - 1;
-    elements[1].data = nonce;
+    elements[1].data = tmp;
     elements[1].length = 8;
 
     rv = aDEREncodeSequence(&item, ASN1_CONSTR_SEQUENCE, elements, 2, nonceItemSpecs, -1);
@@ -741,35 +745,15 @@ makeCompression(DERItem *where, uint32_t deco, size_t size)
 }
 
 static int
-img4_fsync(FHANDLE fd_)
+reassemble(struct file_ops_img4 *fd, DERItem *out)
 {
-    struct file_ops_img4 *fd = (struct file_ops_img4 *)fd_;
     int rv;
-    DERItem out;
-    DERItem items[4];
-    DERItem compr = { NULL, 0 };
     void *data;
     size_t size;
+    DERItem items[4];
+    DERItem compr = { NULL, 0 };
     char IMG4[] = "IMG4";
-    FHANDLE pfd;
-    FHANDLE other;
-
-    if (!fd) {
-        return -1;
-    }
-    pfd = fd->pfd;
-    if (pfd->flags == O_RDONLY) {
-        return 0;
-    }
-    rv = pfd->fsync(pfd);
-    if (rv) {
-        return -1;
-    }
-    other = fd->other;
-    fd->dirty = 1; /* XXX TODO: this should be set iff pfd *was* dirty */
-    if (!fd->dirty) {
-        goto next;
-    }
+    FHANDLE pfd = fd->pfd;
 
     rv = pfd->ioctl(pfd, IOCTL_MEM_GET_BACKING, &data, &size);
     if (rv) {
@@ -792,22 +776,129 @@ img4_fsync(FHANDLE fd_)
         int n = 3;
         items[2] = fd->manifest;
         if (fd->hasnonce) {
-            rv = makeRestoreInfo(&items[3], (unsigned char *)&fd->nonce);
+            rv = makeRestoreInfo(&items[3], fd->nonce);
             if (rv) {
                 free(items[1].data);
                 return rv;
             }
             n++;
         }
-        rv = aDEREncodeSequence(&out, ASN1_CONSTR_SEQUENCE, items, n, DERImg4ItemSpecs, 3);
+        rv = aDEREncodeSequence(out, ASN1_CONSTR_SEQUENCE, items, n, DERImg4ItemSpecs, 3);
         free(items[1].data);
     } else if (fd->wasimg4) {
-        rv = aDEREncodeSequence(&out, ASN1_CONSTR_SEQUENCE, items, 2, DERImg4ItemSpecs, 1);
+        rv = aDEREncodeSequence(out, ASN1_CONSTR_SEQUENCE, items, 2, DERImg4ItemSpecs, 1);
     } else {
-        out = items[1];
+        *out = items[1];
     }
     if (rv) {
+        free(out->data);
+    }
+    return rv;
+}
+
+static unsigned long long
+getint(const char *s, size_t len, unsigned long long def)
+{
+    unsigned long long val;
+    char *bp;
+    errno = 0;
+    val = strtoull(s, &bp, 0);
+    if (errno == 0 && bp == s + len) {
+        return val;
+    }
+    return def;
+}
+
+static void
+parseargs(const char *s)
+{
+    do {
+        size_t index = strcspn(s, " \t,\r\n");
+        if (index) {
+            const char *p = memchr(s, '=', index);
+            if (p && p - s == 4) {
+                size_t vallen = s + index - ++p;
+                getint(p, vallen, -1);
+            }
+        }
+        s += index;
+        s += strspn(s, " \t,\r\n");
+    } while (*s);
+}
+
+static int
+validate(TheImg4 *img4, unsigned type, const char *args)
+{
+    /* XXX TODO */
+    parseargs(args);
+    return -1;
+}
+
+static int
+dovalidate(struct file_ops_img4 *fd, const char *args)
+{
+    int rv;
+    DERItem out;
+    TheImg4 *img4;
+    FHANDLE pfd = fd->pfd;
+
+    rv = pfd->fsync(pfd);
+    if (rv) {
+        return -1;
+    }
+
+    rv = reassemble(fd, &out);
+    if (rv) {
+        return rv;
+    }
+
+    img4 = parse(out.data, out.length);
+    if (!img4) {
         free(out.data);
+        return -1;
+    }
+
+    rv = validate(img4, fd->type, args);
+#ifndef USE_CORECRYPTO 
+    EVP_cleanup();
+    ERR_remove_state(0);
+    CRYPTO_cleanup_all_ex_data();
+#endif
+
+    free(img4);
+    free(out.data);
+    return rv;
+}
+
+static int
+img4_fsync(FHANDLE fd_)
+{
+    struct file_ops_img4 *fd = (struct file_ops_img4 *)fd_;
+    int rv;
+    DERItem out;
+    size_t size;
+    FHANDLE pfd;
+    FHANDLE other;
+
+    if (!fd) {
+        return -1;
+    }
+    pfd = fd->pfd;
+    if (pfd->flags == O_RDONLY) {
+        return 0;
+    }
+    rv = pfd->fsync(pfd);
+    if (rv) {
+        return -1;
+    }
+    other = fd->other;
+    fd->dirty = 1; /* XXX TODO: this should be set iff pfd *was* dirty */
+    if (!fd->dirty) {
+        goto next;
+    }
+
+    rv = reassemble(fd, &out);
+    if (rv) {
         return rv;
     }
 
@@ -889,13 +980,9 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
 
     va_start(ap, req);
     switch (req) {
-        case IOCTL_MEM_GET_DATAPTR:
-        case IOCTL_MEM_GET_BACKING:
-        case IOCTL_LZSS_GET_EXTRA: {
-            FHANDLE pfd = ctx->pfd;
-            void **dst = va_arg(ap, void **);
-            size_t *sz = va_arg(ap, size_t *);
-            rv = pfd->ioctl(pfd, req, dst, sz);
+        case IOCTL_IMG4_EVAL_TRUST: {
+            void *param = va_arg(ap, void *);
+            rv = dovalidate(ctx, param);
             break;
         }
         case IOCTL_IMG4_GET_KEYBAG: {
@@ -915,6 +1002,7 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
         case IOCTL_IMG4_SET_TYPE: {
             unsigned type = va_arg(ap, unsigned);
             ctx->type = type;
+            ctx->dirty = 1;
             rv = 0;
             break;
         }
@@ -955,8 +1043,7 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             break;
         }
         case IOCTL_IMG4_SET_NONCE: if (fd->flags == O_RDONLY) break; else {
-            uint64_t nonce = va_arg(ap, uint64_t);
-            PUT_QWORD_BE(&ctx->nonce, 0, nonce);
+            ctx->nonce = va_arg(ap, uint64_t);
             ctx->hasnonce = 1;
             ctx->dirty = 1;
             rv = 0;

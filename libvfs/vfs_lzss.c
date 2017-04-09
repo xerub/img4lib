@@ -122,6 +122,16 @@ lzss_ioctl(FHANDLE fd, unsigned long req, ...)
             rv = 0;
             break;
         }
+        case IOCTL_LZSS_SET_EXTRA: {
+            void *old = ctx->extra;
+            void *src = va_arg(ap, void *);
+            size_t sz = va_arg(ap, size_t);
+            ctx->extra = src;
+            ctx->extrasz = sz;
+            free(old);
+            rv = 0;
+            break;
+        }
         default: {
             void *a = va_arg(ap, void *);
             void *b = va_arg(ap, void *);

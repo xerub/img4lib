@@ -210,3 +210,31 @@ memory_open(int flags, void *buf, size_t size)
 {
     return memory_openex(malloc(sizeof(struct file_ops_memory)), flags, buf, size);
 }
+
+FHANDLE
+memory_open_from_file(const char *filename, int flags)
+{
+    size_t n, size;
+    unsigned char *buf;
+    FHANDLE fd = file_open(filename, O_RDONLY);
+    if (!fd) {
+        return NULL;
+    }
+    size = fd->length(fd);
+    if ((ssize_t)size < 0) {
+        fd->close(fd);
+        return NULL;
+    }
+    buf = malloc(size);
+    if (!buf) {
+        fd->close(fd);
+        return NULL;
+    }
+    n = fd->read(fd, buf, size);
+    fd->close(fd);
+    if (n != size) {
+        free(buf);
+        return NULL;
+    }
+    return memory_open(flags, buf, size);
+}

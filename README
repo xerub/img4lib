@@ -1,3 +1,48 @@
 Some WIP code to deal with img4 files in a decent manner.
 
+Build:
+
+git submodule init && git submodule update && make -C lzfse && make
+
+Examples:
+
+./img4 \
+    -i DeviceTree.n51ap.im4p \
+    -o dtre.img4 \
+    -M manifest.im4m \
+    -N 0x1122334455667788 \
+    -T rdtr
+
+./img4 \
+    -i kc_iPhone6,1_9.0_13A344.im4p \
+    -o krnl.img4 \
+    -k a6ff60f2fcf3cdcaaf735e1683418ff56828540cd92ac15f3144ed4dc9d5bcb34c01cc8154bc22c3658d82b6c439340b \
+    -M manifest.im4m \
+    -N 0x1122334455667788 \
+    -P kc_iPhone6,1_9.0_13A344.bpatch \
+    -D \
+    -T rkrn
+
+Patches for kc_iPhone6,1_9.0_13A344:
+
+# AMFI
+0x006AF484 0xF6 0xE0
+0x006AF485 0x57 0x03
+0x006AF486 0xBD 0x00
+0x006AF487 0xA9 0x32
+0x006AF488 0xF4 0xC0
+0x006AF489 0x4F 0x03
+0x006AF48A 0x01 0x5F
+0x006AF48B 0xA9 0xD6
+
+# MAC
+0x004823CC 0x00 0x00
+0x004823CD 0x05 0x00
+0x004823CE 0x40 0x80
+0x004823CF 0xF9 0x52
+#0x00F5595C 0xB2 0x00
+#0x00F5595D 0x3E 0x00
+#0x00F5595E 0x00 0x80
+#0x00F5595F 0x94 0x52
+
 -xerub
