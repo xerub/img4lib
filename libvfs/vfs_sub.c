@@ -124,7 +124,11 @@ sub_lseek(FHANDLE fd, off_t offset, int whence)
 static int
 sub_ftruncate(FHANDLE fd, off_t length)
 {
-    return -1;
+    struct file_ops_sub *ctx = (struct file_ops_sub *)fd;
+    if (ctx->length - length) {
+        return -1;
+    }
+    return 0;
 }
 
 static ssize_t
