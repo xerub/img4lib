@@ -29,7 +29,8 @@ struct file_ops {
 #define IOCTL_IMG4_GET_NONCE    64	/* (unsigned long long *) */
 #define IOCTL_IMG4_SET_NONCE    65	/* (unsigned long) */
 #define IOCTL_IMG4_GET_KEYBAG   66	/* (void **, size_t *) */
-#define IOCTL_IMG4_EVAL_TRUST   67	/* (void *) */
+#define IOCTL_IMG4_GET_KEYBAG2  67	/* (unsigned char[48], unsigned char[48]) */
+#define IOCTL_IMG4_EVAL_TRUST   68	/* (void *) */
 
 typedef void (*free_t)(void *ptr);
 typedef void *(*realloc_t)(void *ptr, size_t size);

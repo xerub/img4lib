@@ -177,6 +177,12 @@ const DERItem oidAppleImg4ManifestCertSpec = { (DERByte *)_oidAppleImg4ManifestC
 
 const DERItem AppleSecureBootCA = { (DERByte *)"\x13)Apple Secure Boot Certification Authority", 0x2B };
 
+const DERItemSpec kbagSpecs[] = {
+    { 0 * sizeof(DERItem), ASN1_INTEGER,                                0 },
+    { 1 * sizeof(DERItem), ASN1_OCTET_STRING,                           0 },
+    { 2 * sizeof(DERItem), ASN1_OCTET_STRING,                           0 },
+};
+
 /*****************************************************************************/
 
 int
@@ -991,6 +997,39 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             *dst = ctx->keybag.data;
             *sz = ctx->keybag.length;
             rv = 0;
+            break;
+        }
+        case IOCTL_IMG4_GET_KEYBAG2: {
+            unsigned i;
+            DERTag tag;
+            DERSequence seq;
+            DERDecodedInfo info;
+            if (DERDecodeSeqInit(&ctx->keybag, &tag, &seq)) {
+                break;
+            }
+            if (tag != ASN1_CONSTR_SEQUENCE) {
+                break;
+            }
+            for (i = 0; !DERDecodeSeqNext(&seq, &info); i++) {
+                DERItem items[3];
+                if (info.tag != ASN1_CONSTR_SEQUENCE) {
+                    break;
+                }
+                if (DERParseSequenceContent(&info.content, 3, kbagSpecs, items, 3 * sizeof(DERItem))) {
+                    break;
+                }
+                if (items[1].length != 16 || items[2].length != 32) {
+                    break;
+                }
+                if (i < 2) {
+                    unsigned char *kbag = va_arg(ap, unsigned char *);
+                    memcpy(kbag, items[1].data, 16);
+                    memcpy(kbag + 16, items[2].data, 32);
+                }
+            }
+            if (i == 2) {
+                rv = 0;
+            }
             break;
         }
         case IOCTL_IMG4_GET_TYPE: {

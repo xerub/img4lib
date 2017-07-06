@@ -278,6 +278,7 @@ usage(const char *argv0)
     printf("    -m <file>       write ticket to <file>\n");
     printf("    -c <info>       check signature with <info>\n");
     printf("    -n              print nonce\n");
+    printf("    -b              print kbags\n");
     printf("modifiers:\n");
     printf("    -T <fourcc>     set type <fourcc>\n");
     printf("    -P[f|u] <file>  apply patch from <file> (f=force, u=undo)\n");
@@ -303,6 +304,7 @@ main(int argc, char **argv)
     const char *mname = NULL;
     char *cinfo = NULL;
     int get_nonce = 0;
+    int get_kbags = 0;
     const char *set_type = NULL;
     const char *set_patch = NULL;
     int pf = 0;
@@ -329,6 +331,9 @@ main(int argc, char **argv)
                 continue;
             case 'n':
                 get_nonce = 1;
+                continue;
+            case 'b':
+                get_kbags = 1;
                 continue;
             case 'D':
                 set_decrypt = 1;
@@ -453,6 +458,25 @@ main(int argc, char **argv)
         rv = fd->ioctl(fd, IOCTL_IMG4_GET_NONCE, &nonce);
         if (rv == 0) {
             printf("nonce: %016llx\n", nonce);
+        }
+    }
+    if (get_kbags) {
+        unsigned char kbag1[48];
+        unsigned char kbag2[48];
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_KEYBAG2, kbag1, kbag2);
+        if (rv) {
+            fprintf(stderr, "[e] cannot get keybag\n");
+        } else {
+            unsigned i;
+            printf("kbag1: ");
+            for (i = 0; i < sizeof(kbag1); i++) {
+                printf("%02X", kbag1[i]);
+            }
+            printf("\nkbag2: ");
+            for (i = 0; i < sizeof(kbag2); i++) {
+                printf("%02X", kbag2[i]);
+            }
+            printf("\n");
         }
     }
 
