@@ -1190,6 +1190,9 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey)
     memcpy(dup, item.data, item.length);
 
     pfd = memory_open(other->flags, dup, item.length);
+    if (!pfd) {
+        free(dup);
+    }
     if (ivkey) {
         rv = Img4DecodeGetPayloadKeybag(img4, &item);
         if (rv || item.length == 0) {
@@ -1213,12 +1216,12 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey)
 #endif
     pfd = lzss_reopen(pfd);
     if (!pfd) {
-        goto freedup;
+        goto freeimg;
     }
 
     ops = calloc(1, sizeof(struct file_ops_img4));
     if (!ops) {
-        goto freeops;
+        goto closefd;
     }
     ctx = ops;
     ctx->pfd = pfd;
@@ -1271,8 +1274,8 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey)
     free(ctx->manifest.data);
   freeops:
     free(ops);
-  freedup:
-    free(dup);
+  closefd:
+    pfd->close(pfd);
   freeimg:
     free(img4);
   freebuf:

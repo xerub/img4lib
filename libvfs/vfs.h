@@ -37,7 +37,11 @@ typedef void *(*realloc_t)(void *ptr, size_t size);
 
 FHANDLE file_open(const char *pathname, int flags, ...);
 
-FHANDLE memory_open(int flags, void *buf, size_t size);	/* buf may get reallocated. use IOCTL_MEM_GET_DATAPTR */
+/*
+ * buf is not freed on error, but is freed on close (see IOCTL_MEM_SET_FUNCS)
+ * buf may get reallocated any time. IOCTL_MEM_GET_DATAPTR to access the data
+ */
+FHANDLE memory_open(int flags, void *buf, size_t size);
 FHANDLE memory_open_from_file(const char *filename, int flags);
 
 /* these functions close 'other' in case of failure.

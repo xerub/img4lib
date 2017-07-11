@@ -214,6 +214,7 @@ memory_open(int flags, void *buf, size_t size)
 FHANDLE
 memory_open_from_file(const char *filename, int flags)
 {
+    FHANDLE pfd;
     size_t n, size;
     unsigned char *buf;
     FHANDLE fd = file_open(filename, O_RDONLY);
@@ -236,5 +237,9 @@ memory_open_from_file(const char *filename, int flags)
         free(buf);
         return NULL;
     }
-    return memory_open(flags, buf, size);
+    pfd = memory_open(flags, buf, size);
+    if (!pfd) {
+        free(buf);
+    }
+    return pfd;
 }
