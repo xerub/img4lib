@@ -286,6 +286,7 @@ usage(const char *argv0)
     printf("    -M <file>       set ticket from <file>\n");
     printf("    -N <nonce>      set <nonce> if ticket is set/present\n");
     printf("    -D              leave IMG4 decrypted\n");
+    printf("    -J              convert lzfse to lzss\n");
     printf("note: if no modifier is present and -o is specified, extract the bare image\n");
     printf("note: if modifiers are present and -o is not specified, modify the input file\n");
     printf("note: sigcheck info is: \"CHIP=8960,ECID=0x1122334455667788[,...]\"\n");
@@ -314,6 +315,7 @@ main(int argc, char **argv)
     int set_nonce = 0;
     uint64_t nonce = 0;
     int set_decrypt = 0;
+    int set_convert = 0;
 
     int rv, rc = 0;
     unsigned char *buf;
@@ -337,6 +339,9 @@ main(int argc, char **argv)
                 continue;
             case 'D':
                 set_decrypt = 1;
+                continue;
+            case 'J':
+                set_convert = 1;
                 continue;
             case 'i':
                 if (argc >= 2) { iname = *++argv; argc--; continue; }
@@ -382,7 +387,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt;
+    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert;
 
     k = (unsigned char *)ik;
     if (ik) {
@@ -535,6 +540,13 @@ main(int argc, char **argv)
         rv = fd->ioctl(fd, IOCTL_ENC_SET_NOENC);
         if (rv) {
             fprintf(stderr, "[e] cannot set noenc\n");
+        }
+        rc |= rv;
+    }
+    if (set_convert) {
+        rv = fd->ioctl(fd, IOCTL_LZFSE_SET_LZSS);
+        if (rv) {
+            fprintf(stderr, "[e] cannot set convert\n");
         }
         rc |= rv;
     }

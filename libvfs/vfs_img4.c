@@ -1098,6 +1098,17 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             rv = 0;
             break;
         }
+        case IOCTL_LZFSE_SET_LZSS: if (fd->flags == O_RDONLY) break; else {
+            if (ctx->lzfse) {
+                FHANDLE pfd = ctx->pfd;
+                rv = pfd->ioctl(pfd, req);
+                if (rv == 0) {
+                    ctx->lzfse = 0;
+                    ctx->dirty = 1;
+                }
+            }
+            break;
+        }
         default: {
             void *a = va_arg(ap, void *);
             void *b = va_arg(ap, void *);

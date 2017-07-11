@@ -1,14 +1,17 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include "lzfse.h"
 #include "vfs.h"
 #include "vfs_internal.h"
+#include "lzss.h"
 
 struct file_ops_lzfse {
     struct file_ops_memory ops;
     FHANDLE other;
+    int to_lzss;
 };
 
 static int
@@ -35,6 +38,34 @@ lzfse_fsync(FHANDLE fd)
 
     total = MEMFD(fd)->size;
 
+    if (ctx->to_lzss) {
+        uint32_t adler;
+        uint8_t *end, *ptr = MEMFD(fd)->buf;
+
+        if (total >= 24 && GET_DWORD_BE(ptr, 0) == 0xcafebabe && GET_DWORD_BE(ptr, 4) == 1) {
+            total = GET_DWORD_BE(ptr, 20);
+            ptr += GET_DWORD_BE(ptr, 16);
+        }
+
+        adler = lzadler32(ptr, total);
+
+        buf = malloc(0x180 + (total + 256));
+        if (!buf) {
+            return -1;
+        }
+        end = compress_lzss(buf + 0x180, total + 256, ptr, total);
+        csize = end - buf;
+
+        PUT_DWORD_BE(buf,  0, 'comp');
+        PUT_DWORD_BE(buf,  4, 'lzss');
+        PUT_DWORD_BE(buf,  8, adler);
+        PUT_DWORD_BE(buf, 12, total);
+        PUT_DWORD_BE(buf, 16, csize - 0x180);
+        PUT_DWORD_BE(buf, 20, 1);
+        memset(buf + 24, 0, 0x180 - 24);
+        goto okay;
+    }
+
     buf = malloc(total + 256);
     if (!buf) {
         return -1;
@@ -53,6 +84,7 @@ lzfse_fsync(FHANDLE fd)
         return -1;
     }
 
+  okay:
     other->lseek(other, 0, SEEK_SET);
     written = other->write(other, buf, csize);
     free(buf);
@@ -104,6 +136,12 @@ lzfse_ioctl(FHANDLE fd, unsigned long req, ...)
             size_t *sz = va_arg(ap, size_t *);
             *dst = MEMFD(fd)->buf;
             *sz = MEMFD(fd)->size;
+            rv = 0;
+            break;
+        }
+        case IOCTL_LZFSE_SET_LZSS: {
+            MEMFD(fd)->dirty = 1;
+            ctx->to_lzss = 1;
             rv = 0;
             break;
         }
@@ -223,6 +261,7 @@ lzfse_reopen(FHANDLE other, size_t usize)
     }
     ctx = (struct file_ops_lzfse *)fd;
     ctx->other = other;
+    ctx->to_lzss = 0;
 
     fd->ioctl = lzfse_ioctl;
     fd->fsync = lzfse_fsync;
