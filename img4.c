@@ -279,12 +279,14 @@ usage(const char *argv0)
     printf("    -c <info>       check signature with <info>\n");
     printf("    -n              print nonce\n");
     printf("    -b              print kbags\n");
+    printf("    -v              print version\n");
     printf("modifiers:\n");
     printf("    -T <fourcc>     set type <fourcc>\n");
     printf("    -P[f|u] <file>  apply patch from <file> (f=force, u=undo)\n");
     printf("    -E <file>       set extra from <file>\n");
     printf("    -M <file>       set ticket from <file>\n");
     printf("    -N <nonce>      set <nonce> if ticket is set/present\n");
+    printf("    -V <version>    set <version>\n");
     printf("    -D              leave IMG4 decrypted\n");
     printf("    -J              convert lzfse to lzss\n");
     printf("note: if no modifier is present and -o is specified, extract the bare image\n");
@@ -306,12 +308,14 @@ main(int argc, char **argv)
     char *cinfo = NULL;
     int get_nonce = 0;
     int get_kbags = 0;
+    int get_version = 0;
     const char *set_type = NULL;
     const char *set_patch = NULL;
     int pf = 0;
     int pu = 0;
     const char *set_extra = NULL;
     const char *set_manifest = NULL;
+    const char *set_version = NULL;
     int set_nonce = 0;
     uint64_t nonce = 0;
     int set_decrypt = 0;
@@ -336,6 +340,9 @@ main(int argc, char **argv)
                 continue;
             case 'b':
                 get_kbags = 1;
+                continue;
+            case 'v':
+                get_version = 1;
                 continue;
             case 'D':
                 set_decrypt = 1;
@@ -367,6 +374,8 @@ main(int argc, char **argv)
                 if (argc >= 2) { set_manifest = *++argv; argc--; continue; }
             case 'N':
                 if (argc >= 2) { set_nonce = 1; nonce = strtoull(*++argv, NULL, 16); argc--; continue; }
+            case 'V':
+                if (argc >= 2) { set_version = *++argv; argc--; continue; }
             /* fallthrough */
                 fprintf(stderr, "[e] argument to '%s' is missing\n", arg);
                 return -1;
@@ -387,7 +396,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert;
+    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version;
 
     k = (unsigned char *)ik;
     if (ik) {
@@ -420,7 +429,7 @@ main(int argc, char **argv)
         fd->close(fd);
         return -1;
     }
-    if (!get_nonce && !get_kbags) {
+    if (!get_nonce && !get_kbags && !get_version) {
         printf("%c%c%c%c\n", FOURCC(type));
     }
 
@@ -485,6 +494,14 @@ main(int argc, char **argv)
             printf("\n");
         }
     }
+    if (get_version) {
+        char *version;
+        size_t length;
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_VERSION, &version, &length);
+        if (rv == 0) {
+            printf("%.*s\n", (int)length, version);
+        }
+    }
 
     // set stuff
 
@@ -534,6 +551,13 @@ main(int argc, char **argv)
         rv = fd->ioctl(fd, IOCTL_IMG4_SET_NONCE, nonce);
         if (rv) {
             fprintf(stderr, "[e] cannot set nonce 0x%16llx\n", nonce);
+        }
+        rc |= rv;
+    }
+    if (set_version) {
+        rv = fd->ioctl(fd, IOCTL_IMG4_SET_VERSION, set_version, strlen(set_version));
+        if (rv) {
+            fprintf(stderr, "[e] cannot set version %s\n", set_version);
         }
         rc |= rv;
     }

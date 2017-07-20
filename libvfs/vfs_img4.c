@@ -1086,6 +1086,27 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             rv = 0;
             break;
         }
+        case IOCTL_IMG4_GET_VERSION: {
+            void **dst = va_arg(ap, void **);
+            size_t *sz = va_arg(ap, size_t *);
+            *dst = ctx->version.data;
+            *sz = ctx->version.length;
+            rv = 0;
+            break;
+        }
+        case IOCTL_IMG4_SET_VERSION: if (fd->flags == O_RDONLY) break; else {
+            DERItem item;
+            void *old = ctx->version.data;
+            item.data = va_arg(ap, void *);
+            item.length = va_arg(ap, size_t);
+            rv = derdup(&ctx->version, &item);
+            if (rv) {
+                break;
+            }
+            free(old);
+            ctx->dirty = 1;
+            break;
+        }
         case IOCTL_ENC_SET_NOENC: if (fd->flags == O_RDONLY) break; else {
             FHANDLE pfd = ctx->pfd;
             pfd->ioctl(pfd, req); /* may fail if enc is just a pass-through */
