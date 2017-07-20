@@ -157,6 +157,11 @@ memory_ftruncate(FHANDLE fd_, off_t length)
     }
     fd->size = length;
     fd->dirty = 1;
+    if (length == 0) {
+        free(fd->buf);
+        fd->buf = NULL;
+        return 0;
+    }
     tmp = fd->realloc(fd->buf, length);
     if (tmp) {
         fd->buf = tmp;
