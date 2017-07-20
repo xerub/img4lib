@@ -289,7 +289,7 @@ usage(const char *argv0)
     printf("    -J              convert lzfse to lzss\n");
     printf("note: if no modifier is present and -o is specified, extract the bare image\n");
     printf("note: if modifiers are present and -o is not specified, modify the input file\n");
-    printf("note: sigcheck info is: \"CHIP=8960,ECID=0x1122334455667788[,...]\"\n");
+    printf("note: sigcheck info is: \"CHIP=0x8960,ECID=0x1122334455667788[,...]\"\n");
     exit(0);
 }
 
@@ -420,7 +420,9 @@ main(int argc, char **argv)
         fd->close(fd);
         return -1;
     }
-    printf("%c%c%c%c\n", FOURCC(type));
+    if (!get_nonce && !get_kbags) {
+        printf("%c%c%c%c\n", FOURCC(type));
+    }
 
     if (ename) {
         rv = fd->ioctl(fd, IOCTL_LZSS_GET_EXTRA, &buf, &sz);
@@ -462,7 +464,7 @@ main(int argc, char **argv)
         uint64_t nonce = 0;
         rv = fd->ioctl(fd, IOCTL_IMG4_GET_NONCE, &nonce);
         if (rv == 0) {
-            printf("nonce: %016llx\n", nonce);
+            printf("0x%016llx\n", nonce);
         }
     }
     if (get_kbags) {
@@ -473,11 +475,10 @@ main(int argc, char **argv)
             fprintf(stderr, "[e] cannot get keybag\n");
         } else {
             unsigned i;
-            printf("kbag1: ");
             for (i = 0; i < sizeof(kbag1); i++) {
                 printf("%02X", kbag1[i]);
             }
-            printf("\nkbag2: ");
+            printf("\n");
             for (i = 0; i < sizeof(kbag2); i++) {
                 printf("%02X", kbag2[i]);
             }
@@ -495,7 +496,7 @@ main(int argc, char **argv)
             type = (set_type[0] << 24) | (set_type[1] << 16) | (set_type[2] << 8) | set_type[3];
             rv = fd->ioctl(fd, IOCTL_IMG4_SET_TYPE, type);
             if (rv) {
-                fprintf(stderr, "[e] cannot set nonce\n");
+                fprintf(stderr, "[e] cannot set type\n");
             }
         }
         rc |= rv;
@@ -532,7 +533,7 @@ main(int argc, char **argv)
     if (set_nonce) {
         rv = fd->ioctl(fd, IOCTL_IMG4_SET_NONCE, nonce);
         if (rv) {
-            fprintf(stderr, "[e] cannot set nonce %16llx\n", nonce);
+            fprintf(stderr, "[e] cannot set nonce 0x%16llx\n", nonce);
         }
         rc |= rv;
     }
