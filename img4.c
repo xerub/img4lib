@@ -265,6 +265,57 @@ apply_patch(FHANDLE fd, const char *patchfile, int force, int undo)
     return rv;
 }
 
+static FHANDLE
+make_img4(const char *iname, FHANDLE *orig)
+{
+    static const unsigned char stub[] = {
+        0x30, 0x18, 0x16, 0x04, 0x49, 0x4d, 0x34, 0x50, 0x16, 0x04, 0x6e, 0x6f,
+        0x6e, 0x65, 0x16, 0x07,  'U',  'n',  'k',  'n',  'o',  'w',  'n', 0x04,
+        0x01, 0x00
+    };
+    size_t total;
+    unsigned char *tmp, xfer[4096];
+    FHANDLE fd, src = memory_open_from_file(iname, O_RDONLY);
+    if (!src) {
+        return NULL;
+    }
+    total = src->length(src);
+    tmp = malloc(sizeof(stub));
+    if (!tmp) {
+        src->close(src);
+        return NULL;
+    }
+    memcpy(tmp, stub, sizeof(stub));
+    *orig = memory_open(O_RDWR, tmp, sizeof(stub));
+    if (*orig == NULL) {
+        free(tmp);
+        src->close(src);
+        return NULL;
+    }
+    fd = img4_reopen(*orig, NULL);
+    if (fd) {
+        fd->lseek(fd, 0, SEEK_SET);
+        for (;;) {
+            ssize_t n, written;
+            n = src->read(src, xfer, sizeof(xfer));
+            if (n <= 0) {
+                break;
+            }
+            written = fd->write(fd, xfer, n);
+            if (written != n) {
+                break;
+            }
+            total -= written;
+        }
+        if (total) {
+            fd->close(fd);
+            fd = NULL;
+        }
+    }
+    src->close(src);
+    return fd;
+}
+
 static void __attribute__((noreturn))
 usage(const char *argv0)
 {
@@ -289,6 +340,7 @@ usage(const char *argv0)
     printf("    -V <version>    set <version>\n");
     printf("    -D              leave IMG4 decrypted\n");
     printf("    -J              convert lzfse to lzss\n");
+    printf("    -A              treat input as plain file and wrap it up into ASN.1\n");
     printf("note: if no modifier is present and -o is specified, extract the bare image\n");
     printf("note: if modifiers are present and -o is not specified, modify the input file\n");
     printf("note: sigcheck info is: \"CHIP=0x8960,ECID=0x1122334455667788[,...]\"\n");
@@ -320,6 +372,7 @@ main(int argc, char **argv)
     uint64_t nonce = 0;
     int set_decrypt = 0;
     int set_convert = 0;
+    int set_wrap = 0;
 
     int rv, rc = 0;
     unsigned char *buf;
@@ -349,6 +402,9 @@ main(int argc, char **argv)
                 continue;
             case 'J':
                 set_convert = 1;
+                continue;
+            case 'A':
+                set_wrap = 1;
                 continue;
             case 'i':
                 if (argc >= 2) { iname = *++argv; argc--; continue; }
@@ -396,7 +452,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version;
+    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap;
 
     k = (unsigned char *)ik;
     if (ik) {
@@ -411,6 +467,11 @@ main(int argc, char **argv)
 
     if (!modify) {
         fd = img4_reopen(file_open(iname, O_RDONLY), k);
+    } else if (set_wrap) {
+        if (!oname) {
+            oname = iname;
+        }
+        fd = make_img4(iname, &orig);
     } else if (!oname) {
         fd = img4_reopen(file_open(iname, O_RDWR), k);
     } else {
