@@ -166,11 +166,7 @@ lzss_reopen(FHANDLE other)
 
     where = other->lseek(other, 0, SEEK_CUR);
     outlen = other->read(other, hdr, sizeof(hdr));
-    if (outlen != sizeof(hdr)) {
-        goto closeit;
-    }
-
-    if (GET_DWORD_BE(hdr, 0) != 'comp' || GET_DWORD_BE(hdr, 4) != 'lzss') {
+    if (outlen != sizeof(hdr) || GET_DWORD_BE(hdr, 0) != 'comp' || GET_DWORD_BE(hdr, 4) != 'lzss') {
         other->lseek(other, where, SEEK_SET);
         return other;
     }

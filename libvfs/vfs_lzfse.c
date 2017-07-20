@@ -176,11 +176,7 @@ lzfse_reopen(FHANDLE other, size_t usize)
 
     where = other->lseek(other, 0, SEEK_CUR);
     outlen = other->read(other, hdr, sizeof(hdr));
-    if (outlen != sizeof(hdr)) {
-        goto closeit;
-    }
-
-    if (GET_DWORD_BE(hdr, 0) != 'bvx2') {
+    if (outlen != sizeof(hdr) || GET_DWORD_BE(hdr, 0) != 'bvx2') {
         other->lseek(other, where, SEEK_SET);
         return other;
     }
