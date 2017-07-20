@@ -579,18 +579,17 @@ parse(unsigned char *data, unsigned length)
 static int
 derdup(DERItem *dst, DERItem *src)
 {
+    void *ptr = NULL;
     DERSize length = src->length;
-    dst->data = NULL;
-    dst->length = 0;
     if (length && src->data) {
-        void *ptr = malloc(length);
+        ptr = malloc(length);
         if (!ptr) {
             return -1;
         }
         memcpy(ptr, src->data, length);
-        dst->data = ptr;
-        dst->length = length;
     }
+    dst->data = ptr;
+    dst->length = length;
     return 0;
 }
 
@@ -1065,7 +1064,6 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             }
             rv = derdup(&ctx->manifest, &item);
             if (rv) {
-                ctx->manifest.data = old;
                 break;
             }
             free(old);
