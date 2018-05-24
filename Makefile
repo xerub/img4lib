@@ -2,6 +2,9 @@
 # 1 = use included sources
 #CORECRYPTO = 1
 
+# Darwin can use CommonCrypto instead of OpenSSL
+#COMMONCRYPTO = 1
+
 CC = gcc
 CFLAGS = -Wall -W -pedantic
 CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unused-parameter
@@ -97,8 +100,13 @@ CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
 OBJECTS += $(CCOBJECTS)
 else
+ifdef COMMONCRYPTO
+CC = clang
+CFLAGS += -DUSE_COMMONCRYPTO=1
+else
 CFLAGS += -Wno-deprecated-declarations
 LDLIBS += -lcrypto
+endif
 endif
 
 .c.o:

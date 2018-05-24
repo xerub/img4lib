@@ -5,6 +5,8 @@
 #include <unistd.h>
 #ifdef USE_CORECRYPTO
 #include <corecrypto/ccaes.h>
+#elif defined(USE_COMMONCRYPTO)
+#include <CommonCrypto/CommonCrypto.h>
 #else
 #include <openssl/aes.h>
 #endif
@@ -27,8 +29,12 @@ enc_fsync(FHANDLE fd)
     struct file_ops_enc *ctx = (struct file_ops_enc *)fd;
     unsigned char *buf;
 #ifndef USE_CORECRYPTO
+#ifdef USE_COMMONCRYPTO
+    CCCryptorRef cryptor;
+#else
     unsigned char theiv[16];
     AES_KEY encryptKey;
+#endif
 #endif
 
     if (!fd) {
@@ -62,6 +68,8 @@ enc_fsync(FHANDLE fd)
     cccbc_iv_decl(cccbc_block_size(ccaes_cbc_encrypt_mode()), iv_ctx);
     cccbc_set_iv(ccaes_cbc_encrypt_mode(), iv_ctx, ctx->iv);
     cccbc_init(ccaes_cbc_encrypt_mode(), aesctx, 256, ctx->key);
+#elif defined(USE_COMMONCRYPTO)
+    CCCryptorCreate(kCCEncrypt, kCCAlgorithmAES, 0, ctx->key, kCCKeySizeAES256, ctx->iv, &cryptor);
 #else
     memcpy(theiv, ctx->iv, 16);
     AES_set_encrypt_key(ctx->key, 256, &encryptKey);
@@ -78,6 +86,8 @@ enc_fsync(FHANDLE fd)
         }
 #ifdef USE_CORECRYPTO
         cccbc_update(ccaes_cbc_encrypt_mode(), aesctx, iv_ctx, (chunk + 15) / 16, tmp, tmp);
+#elif defined(USE_COMMONCRYPTO)
+        CCCryptorUpdate(cryptor, tmp, (chunk + 15) & ~15, tmp, (chunk + 15) & ~15, NULL);
 #else
         AES_cbc_encrypt(tmp, tmp, (chunk + 15) & ~15, &encryptKey, theiv, AES_ENCRYPT);
 #endif
@@ -85,6 +95,8 @@ enc_fsync(FHANDLE fd)
         if (written != chunk) {
 #ifdef USE_CORECRYPTO
             cccbc_ctx_clear(cccbc_context_size(ccaes_cbc_encrypt_mode()), aesctx);
+#elif defined(USE_COMMONCRYPTO)
+            CCCryptorRelease(cryptor);
 #endif
             return -1;
         }
@@ -93,6 +105,8 @@ enc_fsync(FHANDLE fd)
     }
 #ifdef USE_CORECRYPTO
     cccbc_ctx_clear(cccbc_context_size(ccaes_cbc_encrypt_mode()), aesctx);
+#elif defined(USE_COMMONCRYPTO)
+    CCCryptorRelease(cryptor);
 #endif
     }
 
@@ -167,7 +181,7 @@ enc_reopen(FHANDLE other, const unsigned char iv[16], const unsigned char key[32
     struct file_ops_enc *ctx;
     unsigned char *buf;
     unsigned char theiv[16];
-#ifndef USE_CORECRYPTO
+#if !defined(USE_CORECRYPTO) && !defined(USE_COMMONCRYPTO)
     AES_KEY decryptKey;
 #endif
 
@@ -210,6 +224,8 @@ enc_reopen(FHANDLE other, const unsigned char iv[16], const unsigned char key[32
     }
 #ifdef USE_CORECRYPTO
     cccbc_one_shot(ccaes_cbc_decrypt_mode(), 32, key, theiv, (n + 15) / 16, buf, buf);
+#elif defined(USE_COMMONCRYPTO)
+    CCCrypt(kCCDecrypt, kCCAlgorithmAES, 0, key, kCCKeySizeAES256, theiv, buf, (n + 15) & ~15, buf, (n + 15) & ~15, NULL);
 #else
     AES_set_decrypt_key(key, 256, &decryptKey);
     AES_cbc_encrypt(buf, buf, (n + 15) & ~15, &decryptKey, theiv, AES_DECRYPT);

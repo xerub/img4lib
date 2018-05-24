@@ -10,6 +10,8 @@
 #ifdef USE_CORECRYPTO
 #include <corecrypto/ccrsa.h>
 #include <corecrypto/ccsha1.h>
+#elif defined(USE_COMMONCRYPTO)
+#include <CommonCrypto/CommonCrypto.h>
 #else
 #include <openssl/bn.h>
 #include <openssl/err.h>
@@ -523,7 +525,7 @@ Img4DecodeInit(DERByte *data, DERSize length, TheImg4 *img4)
 #include <fcntl.h>
 #ifdef USE_CORECRYPTO
 #include <corecrypto/ccaes.h>
-#else
+#elif !defined(USE_COMMONCRYPTO)
 #include <openssl/aes.h>
 #endif
 #include "libvfs/vfs.h"
@@ -864,7 +866,7 @@ dovalidate(struct file_ops_img4 *fd, const char *args)
     }
 
     rv = validate(img4, fd->type, args);
-#ifndef USE_CORECRYPTO 
+#if !defined(USE_CORECRYPTO) && !defined(USE_COMMONCRYPTO)
     EVP_cleanup();
     ERR_remove_state(0);
     CRYPTO_cleanup_all_ex_data();
