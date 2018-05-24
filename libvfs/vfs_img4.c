@@ -3,19 +3,21 @@
  * xerub 2015, 2017
  */
 
-
 #include <assert.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #ifdef USE_CORECRYPTO
-#include <corecrypto/ccrsa.h>
-#include <corecrypto/ccsha1.h>
+#   include <corecrypto/ccrsa.h>
+#   include <corecrypto/ccsha1.h>
+#elif USE_COMMONCRYPTO
+#   include <CommonCrypto/CommonCrypto.h>
 #else
-#include <openssl/bn.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
-#include <openssl/rsa.h>
-#include <openssl/sha.h>
+#   include <openssl/bn.h>
+#   include <openssl/err.h>
+#   include <openssl/evp.h>
+#   include <openssl/rsa.h>
+#   include <openssl/sha.h>
 #endif
 #include <libDER/DER_Encode.h>
 #include <libDER/DER_Decode.h>
@@ -523,7 +525,7 @@ Img4DecodeInit(DERByte *data, DERSize length, TheImg4 *img4)
 #include <fcntl.h>
 #ifdef USE_CORECRYPTO
 #include <corecrypto/ccaes.h>
-#else
+#elif !USE_COMMONCRYPTO
 #include <openssl/aes.h>
 #endif
 #include "libvfs/vfs.h"
@@ -864,7 +866,7 @@ dovalidate(struct file_ops_img4 *fd, const char *args)
     }
 
     rv = validate(img4, fd->type, args);
-#ifndef USE_CORECRYPTO 
+#if !defined(USE_CORECRYPTO) && !USE_COMMONCRYPTO
     EVP_cleanup();
     ERR_remove_state(0);
     CRYPTO_cleanup_all_ex_data();

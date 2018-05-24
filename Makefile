@@ -2,6 +2,14 @@
 # 1 = use included sources
 #CORECRYPTO = 1
 
+ifndef COMMONCRYPTO
+ifeq ($(shell uname -s),Darwin)
+COMMONCRYPTO = 1
+else
+COMMONCRYPTO = 0
+endif
+endif
+
 CC = gcc
 CFLAGS = -Wall -W -pedantic
 CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unused-parameter
@@ -97,8 +105,13 @@ CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
 OBJECTS += $(CCOBJECTS)
 else
-CFLAGS += -Wno-deprecated-declarations
+ifeq ($(COMMONCRYPTO),1)
+CC = clang
+CFLAGS += -DUSE_COMMONCRYPTO=1
+else
+CFLAGS += -Wno-deprecated-declarations -DUSE_COMMONCRYPTO=0
 LDLIBS += -lcrypto
+endif
 endif
 
 .c.o:
