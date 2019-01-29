@@ -33,7 +33,7 @@ struct file_ops {
 #define IOCTL_IMG4_GET_KEYBAG2  67	/* (unsigned char[48], unsigned char[48]) */
 #define IOCTL_IMG4_GET_VERSION  68	/* (void **, size_t *) */
 #define IOCTL_IMG4_SET_VERSION  69	/* (void *, size_t) */
-#define IOCTL_IMG4_EVAL_TRUST   70	/* (void *) */
+#define IOCTL_IMG4_EVAL_TRUST   90	/* (void *) */
 
 typedef void (*free_t)(void *ptr);
 typedef void *(*realloc_t)(void *ptr, size_t size);

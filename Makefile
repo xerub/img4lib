@@ -103,6 +103,7 @@ else
 ifdef COMMONCRYPTO
 CC = clang
 CFLAGS += -DUSE_COMMONCRYPTO=1
+LDLIBS += -framework Security -framework CoreFoundation
 else
 CFLAGS += -Wno-deprecated-declarations
 LDLIBS += -lcrypto

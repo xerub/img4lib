@@ -13,6 +13,9 @@
 #include <corecrypto/ccsha1.h>
 #elif defined(USE_COMMONCRYPTO)
 #include <CommonCrypto/CommonCrypto.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/SecItem.h>
+#include <Security/SecKey.h>
 #else
 #include <openssl/bn.h>
 #include <openssl/err.h>
@@ -90,6 +93,49 @@ typedef struct {
     TheImg4Manifest manifest;
     TheImg4RestoreInfo restoreInfo;
 } TheImg4;
+
+typedef struct {
+    uint64_t CHIP;
+    uint64_t ECID;
+    uint64_t SEPO;
+    uint64_t SDOM;
+    uint64_t BORD;
+    unsigned char CPRO;
+    unsigned char CSEC;
+    unsigned char field_2A;
+    unsigned char field_2B;
+    unsigned char field_2C;
+    unsigned char field_2D;
+    unsigned char field_2E;
+    unsigned char field_2F;
+    uint64_t field_30;
+    unsigned char boot_manifest_hash[20];
+    unsigned char hashvalid;
+    unsigned char field_4D;
+    unsigned char field_4E;
+    unsigned char field_4F;
+} ContextH;
+
+typedef struct {
+    unsigned char field_0;
+    unsigned char field_1;
+    unsigned char field_2;
+    unsigned char field_3;
+    unsigned char field_4;
+    unsigned char field_5;
+    unsigned char field_6;
+    unsigned char field_7;
+    unsigned char manifest_hash[20];
+    bool has_manifest;
+    unsigned char field_1D;
+    unsigned char payload_hash[20];
+} ContextU;
+
+typedef struct {
+    TheImg4 *img4;
+    ContextH *hardware;
+    ContextU *unknown;
+} CTX;
 
 const DERItemSpec DERImg4ItemSpecs[4] = {
     { 0 * sizeof(DERItem), ASN1_IA5_STRING,                             0 },                    // "IMG4"
@@ -185,6 +231,325 @@ const DERItemSpec kbagSpecs[] = {
     { 1 * sizeof(DERItem), ASN1_OCTET_STRING,                           0 },
     { 2 * sizeof(DERItem), ASN1_OCTET_STRING,                           0 },
 };
+
+/*****************************************************************************/
+
+#define doHash sha1_digest
+
+void
+sha1_digest(const void *data, DERSize length, DERByte digest[20])
+{
+#ifdef USE_CORECRYPTO
+    ccdigest(&ccsha1_ltc_di, length, data, digest);
+#elif defined(USE_COMMONCRYPTO)
+    CC_SHA1(data, length, digest);
+#else
+    SHA1(data, length, digest);
+#endif
+}
+
+int
+verify_signature_rsa(const DERItem *pkey, const DERItem *digest, const DERItem *sig)
+{
+    int rv;
+#ifdef USE_CORECRYPTO
+    const DERByte *ptr;
+    DERSize len;
+    cc_size n;
+
+    bool valid;
+    DERItem pkeyComponents[2];
+    DERItem var_390;
+    ccrsa_pub_ctx_decl(256, key);
+
+    ccrsa_ctx_n(key) = 256;
+
+    valid = false;
+
+    var_390 = *pkey;
+
+    if (DERParseSequence(&var_390, 2, DERRSAPubKeyPKCS1ItemSpecs, pkeyComponents, 2 * sizeof(DERItem))) {
+        return -1;
+    }
+
+    len = pkeyComponents[0].length;
+    ptr = pkeyComponents[0].data;
+
+    while (len && *ptr == 0) {
+        ptr++;
+        len--;
+    }
+
+    n = ccn_nof_size(len);
+    if (n > ccrsa_ctx_n(key)) {
+        return -1;
+    }
+    ccrsa_ctx_n(key) = n;
+    ccn_read_uint(n, ccrsa_ctx_m(key), len, ptr);
+    cczp_init(ccrsa_ctx_zm(key));
+    rv = ccn_read_uint(n, ccrsa_ctx_e(key), pkeyComponents[1].length, pkeyComponents[1].data);
+    if (rv) {
+        return -1;
+    }
+    rv = ccrsa_verify_pkcs1v15(key, ccoid_sha1, digest->length, digest->data, sig->length, sig->data, &valid);
+    printf("+rv = %d, valid = %d\n", rv, valid);
+    return (valid != true) | (rv != 0);
+#elif defined(USE_COMMONCRYPTO)
+    int bits = 256 * 8;
+    CFNumberRef n;
+    const void *keys[3];
+    const void *values[3];
+    CFDictionaryRef dict;
+    CFErrorRef error = NULL;
+    CFDataRef data, sigData;
+    SecKeyRef k;
+
+    n = CFNumberCreate(NULL, kCFNumberSInt32Type, &bits);
+    if (!n) {
+        return -1;
+    }
+
+    keys[0] = kSecAttrKeyType;       values[0] = kSecAttrKeyTypeRSA;
+    keys[1] = kSecAttrKeyClass;      values[1] = kSecAttrKeyClassPublic;
+    keys[2] = kSecAttrKeySizeInBits; values[2] = n;
+    dict = CFDictionaryCreate(NULL, keys, values, 3, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFRelease(n);
+    if (!dict) {
+        return -1;
+    }
+
+    data = CFDataCreate(NULL, pkey->data, pkey->length);
+    if (!data) {
+        CFRelease(dict);
+        return -1;
+    }
+
+    k = SecKeyCreateWithData(data, dict, &error);
+    CFRelease(data);
+    CFRelease(dict);
+    if (!k) {
+        return -1;
+    }
+
+    data = CFDataCreate(NULL, digest->data, digest->length);
+    sigData = CFDataCreate(NULL, sig->data, sig->length);
+    rv = (data && sigData) ? SecKeyVerifySignature(k, kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1, data, sigData, &error) : 0;
+    CFRelease(sigData);
+    CFRelease(data);
+    CFRelease(k);
+
+    printf("+rv = %d\n", rv);
+    return (rv == 1) ? 0 : -1;
+#else
+    RSA *rsa;
+    DERItem pkeyComponents[2];
+
+    if (DERParseSequence(pkey, 2, DERRSAPubKeyPKCS1ItemSpecs, pkeyComponents, 2 * sizeof(DERItem))) {
+        return -1;
+    }
+
+    rsa = RSA_new();
+    assert(rsa);
+
+    rsa->n = BN_bin2bn(pkeyComponents[0].data, pkeyComponents[0].length, NULL);
+    assert(rsa->n);
+
+    rsa->e = BN_bin2bn(pkeyComponents[1].data, pkeyComponents[1].length, NULL);
+    assert(rsa->e);
+
+    rv = RSA_verify(NID_sha1, digest->data, digest->length, sig->data, sig->length, rsa);
+    printf("+rv = %d\n", rv);
+
+    RSA_free(rsa);
+    return (rv == 1) ? 0 : -1;
+#endif
+}
+
+int
+img4_verify_signature_with_chain(
+    void *chain_blob_data, unsigned int chain_blob_length,
+    void *sig_blob_data, unsigned int sig_blob_length,
+    void *digest_data, unsigned int digest_length,
+    DERByte **img4_data, DERSize *img4_length)
+{
+    DERItem var_540;
+    DERItem var_530[3];
+    DERItem var_500[3];
+    DERItem var_4D0[3][10];
+    DERItem var_2F0[3][3];
+    DERItem certChain[3];       // var_260
+    DERDecodedInfo var_230;
+    DERItem var_218;
+    DERItem var_208[2];
+    unsigned char var_1E1;
+    DERItem var_1E0[2];
+    DERItem var_1C0[3];
+    DERDecodedInfo var_190;
+    DERTag var_178;
+    DERSequence var_170;
+    DERDecodedInfo var_160;
+    DERItem var_148;
+    DERItem var_138;
+    unsigned char var_121;
+    DERItem var_120[2];
+    DERDecodedInfo var_100;
+    DERSequence var_E8;
+    DERItem var_D8[2];
+    DERDecodedInfo var_B8;
+    DERSequence var_A0;
+    DERItem var_90;
+    DERItem var_80;
+    unsigned char var_6C[20];
+
+    DERSize v1;
+    unsigned i;
+    int rv;
+
+    certChain[0].data = (void *)ROOT_CA_CERTIFICATE;
+    certChain[0].length = ROOT_CA_CERTIFICATE_SIZE;
+
+    var_218.data = chain_blob_data;
+    var_218.length = chain_blob_length;
+
+    i = 1;
+    do {
+        if (DERDecodeItem(&var_218, &var_230)) {
+            return -1;
+        }
+        v1 = var_230.content.data + var_230.content.length - var_218.data;
+        if (v1 > var_218.length || i > 2) {
+            return -1;
+        }
+        certChain[i].length = v1;
+        certChain[i].data = var_218.data;
+        i++;
+        var_218.length -= v1;
+        var_218.data += v1;
+    } while (var_218.length);
+    if (i != 3) {
+        return -1;
+    }
+
+    for (i = 0; i < 3; i++) {
+        if (DERParseSequence(&certChain[i], 3, DERSignedCertCrlItemSpecs, var_2F0[i], 3 * sizeof(DERItem))
+            || DERParseSequence(var_2F0[i], 10, DERTBSCertItemSpecs, var_4D0[i], 10 * sizeof(DERItem))
+            || DERParseSequenceContent(&var_4D0[i][6], 2, DERSubjPubKeyInfoItemSpecs, var_1E0, 2 * sizeof(DERItem))
+            || DERParseSequenceContent(var_1E0, 2, DERAlgorithmIdItemSpecs, var_208, 2 * sizeof(DERItem))
+            || !DEROidCompare(var_208, &oidRsa)) {
+            return -1;
+        }
+        if (var_208[1].length) {
+            if (var_208[1].length != 2 || var_208[1].data[0] != 5 || var_208[1].data[1]) {
+                return -1;
+            }
+        }
+
+        if (DERParseBitString(&var_1E0[1], &var_500[i], &var_1E1) || var_1E1) {
+            return -1;
+        }
+
+        var_530[i].data = NULL;
+        var_530[i].length = 0;
+        if (var_4D0[i][9].length == 0) {
+            continue;
+        }
+        if (DERDecodeSeqInit(&var_4D0[i][9], &var_178, &var_170)) {
+            return -1;
+        }
+        if (var_178 != ASN1_CONSTR_SEQUENCE) {
+            return -1;
+        }
+        while (!DERDecodeSeqNext(&var_170, &var_190)) {
+            if (var_190.tag != ASN1_CONSTR_SEQUENCE || DERParseSequenceContent(&var_190.content, 3, DERExtensionItemSpecs, var_1C0, 3 * sizeof(DERItem))) {
+                return -1;
+            }
+            if (DEROidCompare(&oidAppleImg4ManifestCertSpec, var_1C0)) {
+                if (DERDecodeItem(&var_1C0[2], &var_160) || var_160.tag != ASN1_CONSTR_SET) {
+                    return -1;
+                }
+                var_530[i] = var_1C0[2];
+            }
+        }
+    }
+
+    for (i = 1; i < 3; i++) {
+        if (!IS_EQUAL(var_4D0[i - 1][5], var_4D0[i][3])) {
+            return -1;
+        }
+        var_138.data = var_6C;
+        var_138.length = 20;
+
+        if (DERParseSequenceContent(&var_2F0[i][1], 2, DERAlgorithmIdItemSpecs, var_120, 2 * sizeof(DERItem))) {
+            return -1;
+        }
+        if (!DEROidCompare(var_120, &oidSha1Rsa)) {
+            return -1;
+        }
+        sha1_digest(var_2F0[i][0].data, var_2F0[i][0].length, var_6C); //ccdigest(ccsha1_ltc_di_copy, var_2F0[i][0].length, var_2F0[i][0].data, var_6C);
+        if (DERParseBitString(&var_2F0[i][2], &var_148, &var_121) || var_121) {
+            return -1;
+        }
+        if (verify_signature_rsa(&var_500[i - 1], &var_138, &var_148)) {
+            return -1;
+        }
+    }
+
+    var_540.data = NULL;
+    var_540.length = 0;
+    if (DERDecodeSeqContentInit(&var_4D0[1][5], &var_E8)) {
+        return -1;
+    }
+
+    do {
+        if (DERDecodeSeqNext(&var_E8, &var_100)) {
+            return -1;
+        }
+        if (var_100.tag != ASN1_CONSTR_SET) {
+            return -1;
+        }
+        rv = DERDecodeSeqContentInit(&var_100.content, &var_A0);
+        if (rv) {
+            rv = -1;
+            continue;
+        }
+        while ((rv = DERDecodeSeqNext(&var_A0, &var_B8)) == DR_Success) {
+            if (var_B8.tag != ASN1_CONSTR_SEQUENCE) {
+                rv = -1;
+                break;
+            }
+            if (DERParseSequenceContent(&var_B8.content, 2, DERAttributeTypeAndValueItemSpecs, var_D8, 2 * sizeof(DERItem))) {
+                rv = -1;
+                break;
+            }
+            if (DEROidCompare(&oidCommonName, var_D8)) {
+                var_540 = var_D8[1];
+                break;
+            }
+        }
+    } while (rv == DR_EndOfSequence);
+
+    if (rv) {
+        return -1;
+    }
+    if (!DEROidCompare(&AppleSecureBootCA, &var_540)) {
+        return -1;
+    }
+    var_80.data = sig_blob_data;
+    var_80.length = sig_blob_length;
+    var_90.data = digest_data;
+    var_90.length = digest_length;
+    if (digest_length != 20) {
+        return -1;
+    }
+    if (verify_signature_rsa(&var_500[2], &var_90, &var_80)) {
+        return -1;
+    }
+    if (var_530[2].data && var_530[2].length && img4_data && img4_length) {
+        *img4_data = var_530[2].data;
+        *img4_length = var_530[2].length;
+    }
+    return 0;
+}
 
 /*****************************************************************************/
 
@@ -367,6 +732,64 @@ DERImg4DecodeRestoreInfo(const DERItem *a1, TheImg4RestoreInfo *a2)
 }
 
 int
+DERImg4DecodeProperty(const DERItem *a1, DERTag etag, DERMonster *a4)
+{
+    int rv;
+    uint32_t var_6C;
+    DERTag tag;
+    DERSequence var_60;
+    DERDecodedInfo var_50;
+    DERDecodedInfo var_38;
+
+    if (a1 == NULL || a4 == NULL) {
+        return DR_ParamErr;
+    }
+
+    rv = DERDecodeSeqInit(a1, &tag, &var_60);
+    if (rv) {
+        return rv;
+    }
+
+    if (tag != ASN1_CONSTR_SEQUENCE) {
+        return DR_UnexpectedTag;
+    }
+
+    rv = DERDecodeSeqNext(&var_60, &var_38);
+    if (rv) {
+        return rv;
+    }
+
+    if (var_38.tag != ASN1_IA5_STRING) {
+        return DR_UnexpectedTag;
+    }
+
+    rv = DERParseInteger(&var_38.content, &var_6C);
+    if (rv) {
+        return rv;
+    }
+
+    if ((E000000000000000 | var_6C) != etag) {
+        return DR_UnexpectedTag;
+    }
+
+    a4[0].item = var_38.content;
+
+    rv = DERDecodeSeqNext(&var_60, &var_50);
+    if (rv) {
+        return rv;
+    }
+
+    a4[1].tag = var_50.tag;
+    a4[1].item = var_50.content;
+
+    rv = DERDecodeSeqNext(&var_60, &var_50);
+    if (rv != DR_EndOfSequence) {
+        return DR_UnexpectedTag;
+    }
+    return 0;
+}
+
+int
 DERImg4DecodeFindProperty(const DERItem *a1, DERTag etag, DERTag atag, DERMonster *dest)
 {
     int rv;
@@ -444,12 +867,58 @@ Img4DecodeGetPayloadKeybag(TheImg4 *img4, DERItem *a2)
 }
 
 int
+Img4DecodeCopyPayloadHash(TheImg4 *img4, void *hash, DERSize length)
+{
+    unsigned char var_3C[20];
+
+    if (img4 == NULL || hash == NULL || length != 20) {
+        return DR_ParamErr;
+    }
+    if (img4->payload.imageData.data == NULL || img4->payload.imageData.length == 0) {
+        return DR_EndOfSequence;
+    }
+    if (!img4->payloadHashed) {
+        sha1_digest(img4->payloadRaw.data, img4->payloadRaw.length, var_3C);
+        memmove(hash, &var_3C, length);
+        return 0;
+    }
+    if (length != 20) {
+        return DR_BufOverflow;
+    }
+    memcpy(hash, img4->payload.full_digest, 20);
+    return 0;
+}
+
+int
 Img4DecodeManifestExists(TheImg4 *img4, bool *exists)
 {
     if (img4 == NULL || exists == NULL) {
         return DR_ParamErr;
     }
     *exists = (img4->manifestRaw.data != NULL);
+    return 0;
+}
+
+int
+Img4DecodeCopyManifestHash(TheImg4 *img4, void *hash, DERSize length)
+{
+    unsigned char var_3C[20];
+
+    if (img4 == NULL || hash == NULL || length != 20) {
+        return DR_ParamErr;
+    }
+    if (img4->manifestRaw.data == NULL) {
+        return DR_EndOfSequence;
+    }
+    if (!img4->manifestHashed) {
+        sha1_digest(img4->manifestRaw.data, img4->manifestRaw.length, var_3C);
+        memmove(hash, var_3C, length);
+        return 0;
+    }
+    if (length != 20) {
+        return DR_BufOverflow;
+    }
+    memcpy(hash, img4->manifest.full_digest, 20);
     return 0;
 }
 
@@ -481,6 +950,207 @@ Img4DecodeGetRestoreInfoData(TheImg4 *img4, DERTag tag, DERByte **a4, DERSize *a
     *a4 = var_40[1].item.data;
     *a5 = var_40[1].item.length;
     return 0;
+}
+
+int
+Img4DecodeGetPropertyInteger64(const DERItem *a1, DERTag tag, uint64_t *value)
+{
+    int rv;
+    DERItem var_50;
+    DERMonster var_40[2];
+
+    var_50.data = a1->data;
+    var_50.length = a1->length;
+
+    rv = DERImg4DecodeProperty(&var_50, E000000000000000 | tag, var_40);
+    if (rv) {
+        return rv;
+    }
+
+    if (var_40[1].tag != ASN1_INTEGER) {
+        return DR_UnexpectedTag;
+    }
+
+    return DERParseInteger64(&var_40[1].item, value);
+}
+
+int
+Img4DecodeGetPropertyBoolean(const DERItem *a1, DERTag tag, bool *value)
+{
+    int rv;
+    DERItem var_50;
+    DERMonster var_40[2];
+
+    var_50.data = a1->data;
+    var_50.length = a1->length;
+
+    rv = DERImg4DecodeProperty(&var_50, E000000000000000 | tag, var_40);
+    if (rv) {
+        return rv;
+    }
+
+    if (var_40[1].tag != ASN1_BOOLEAN) {
+        return DR_UnexpectedTag;
+    }
+
+    return DERParseBoolean(&var_40[1].item, value);
+}
+
+int
+Img4DecodeGetPropertyData(const DERItem *a1, DERTag tag, DERByte **a4, DERSize *a5)
+{
+    int rv;
+    DERItem var_50;
+    DERMonster var_40[2];
+
+    var_50.data = a1->data;
+    var_50.length = a1->length;
+
+    rv = DERImg4DecodeProperty(&var_50, E000000000000000 | tag, var_40);
+    if (rv) {
+        return rv;
+    }
+
+    if (var_40[1].tag != ASN1_OCTET_STRING) {
+        return DR_UnexpectedTag;
+    }
+
+    *a4 = var_40[1].item.data;
+    *a5 = var_40[1].item.length;
+    return 0;
+}
+
+int
+Img4DecodeEvaluateCertificateProperties(TheImg4 *img4)
+{
+    int rv;
+    DERItem var_130;
+    DERItem var_118;
+    DERMonster var_108[2];
+    DERMonster var_D8[2];
+    DERDecodedInfo var_A8;
+    DERDecodedInfo var_90;
+    DERTag tag;
+    DERSequence var_70;
+    DERSequence var_60;
+
+    if (img4 == NULL) {
+        return DR_ParamErr;
+    }
+    rv = DERDecodeSeqInit(&img4->manifest.img4_blob, &tag, &var_60);
+    if (rv) {
+        return rv;
+    }
+
+    if (tag != ASN1_CONSTR_SET) {
+        return DR_UnexpectedTag;
+    }
+
+    while (!DERDecodeSeqNext(&var_60, &var_90)) {
+        if (var_90.tag != (E000000000000000 | 'OBJP')) {
+            if (var_90.tag != (E000000000000000 | 'MANP')) {
+                return DR_UnexpectedTag;
+            }
+            var_130 = img4->manp;
+        } else {
+            var_130 = img4->objp;
+        }
+
+        rv = DERImg4DecodeProperty(&var_90.content, var_90.tag, var_D8);
+        if (rv) {
+            return rv;
+        }
+
+        if (var_D8[1].tag != ASN1_CONSTR_SET) {
+            return DR_UnexpectedTag;
+        }
+
+        rv = DERDecodeSeqContentInit(&var_D8[1].item, &var_70);
+        if (rv) {
+            return rv;
+        }
+
+        while (!DERDecodeSeqNext(&var_70, &var_A8)) {
+            rv = DERImg4DecodeProperty(&var_A8.content, var_A8.tag, var_108);
+            if (rv) {
+                return rv;
+            }
+
+            rv = DERImg4DecodeContentFindItemWithTag(&var_130, var_A8.tag, &var_118);
+            if ((var_108[1].tag & (ASN1_CLASS_MASK | ASN1_METHOD_MASK)) > ASN1_CONTEXT_SPECIFIC) {
+                if (var_108[1].tag != (ASN1_CONSTRUCTED|ASN1_CONTEXT_SPECIFIC)) {
+                    if (var_108[1].tag != (ASN1_CONSTRUCTED|ASN1_CONTEXT_SPECIFIC | 1)) {
+                        return DR_UnexpectedTag;
+                    }
+                    if (rv == DR_EndOfSequence) {
+                        rv = 0;
+                    }
+                }
+                if (rv) {
+                    return rv;
+                }
+            } else {
+                if (var_108[1].tag != ASN1_OCTET_STRING && var_108[1].tag != ASN1_INTEGER && var_108[1].tag != ASN1_BOOLEAN) {
+                    return DR_UnexpectedTag;
+                }
+                if (rv) {
+                    return rv;
+                }
+                if (!IS_EQUAL(var_A8.content, var_118)) {
+                    return -1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+int
+Img4DecodeEvaluateDictionaryProperties(const DERItem *a1, DictType what, int (*property_cb)(DERTag, DERItem *, DictType, void *), void *ctx)
+{
+    int rv;
+    DERMonster var_98[2];
+    DERItem var_68;
+    DERSequence var_58;
+    DERDecodedInfo var_48;
+
+    if (!property_cb) {
+        return DR_ParamErr;
+    }
+
+    rv = DERDecodeSeqContentInit(a1, &var_58);
+    if (rv) {
+        return rv;
+    }
+
+    while (1) {
+        rv = DERDecodeSeqNext(&var_58, &var_48);
+        if (rv == DR_EndOfSequence) {
+            return 0;
+        }
+        if (rv) {
+            return rv;
+        }
+        rv = DERImg4DecodeProperty(&var_48.content, var_48.tag, var_98);
+        if (rv) {
+            return rv;
+        }
+
+        if (var_98[1].tag != ASN1_OCTET_STRING && var_98[1].tag != ASN1_INTEGER && var_98[1].tag != ASN1_BOOLEAN) {
+            return DR_UnexpectedTag;
+        }
+
+        if ((var_48.tag & E000000000000000) == 0) {
+            return DR_UnexpectedTag;
+        }
+
+        var_68.data = var_48.content.data;
+        var_68.length = var_48.content.length;
+        rv = property_cb(var_48.tag, &var_68, what, ctx);
+        if (rv) {
+            return rv;
+        }
+    }
 }
 
 int
@@ -519,6 +1189,249 @@ Img4DecodeInit(DERByte *data, DERSize length, TheImg4 *img4)
 
     img4->payloadRaw = var_70[1];
     img4->manifestRaw = var_70[2];
+    return 0;
+}
+
+int
+Img4DecodeEvaluateTrust(int type, TheImg4 *img4, int (*property_cb)(DERTag, DERItem *, DictType, void *), void *ctx)
+{
+    int rv;
+    DERDecodedInfo var_88;
+    DERMonster var_70[2];
+
+    if (img4 == NULL || property_cb == NULL) {
+        return DR_ParamErr;
+    }
+    if (img4->manifestRaw.data == NULL) {
+        return DR_ParamErr;
+    }
+
+    sha1_digest(img4->manifest.theset.data, img4->manifest.theset.length, img4->manifest.theset_digest);
+
+    rv = img4_verify_signature_with_chain(
+        img4->manifest.chain_blob.data, img4->manifest.chain_blob.length,
+        img4->manifest.sig_blob.data, img4->manifest.sig_blob.length,
+        img4->manifest.theset_digest, 20, &img4->manifest.img4_blob.data, &img4->manifest.img4_blob.length);
+    if (rv) {
+        return rv;
+    }
+
+    if (!img4->manifest.img4_blob.length) {
+        return DR_DecodeError;
+    }
+
+    rv = DERDecodeItem(&img4->manifest.theset, &var_88);
+    if (rv) {
+        return rv;
+    }
+
+    if (var_88.tag != ASN1_CONSTR_SET) {
+        return -1;
+    }
+
+    rv = DERImg4DecodeFindProperty(&var_88.content, E000000000000000 | 'MANB', ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+
+    img4->manb = var_70[1].item;
+
+    rv = DERImg4DecodeFindProperty(&img4->manb, E000000000000000 | 'MANP', ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+
+    img4->manp = var_70[1].item;
+
+    rv = DERImg4DecodeFindProperty(&img4->manb, E000000000000000 | (unsigned int)type, ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+    img4->objp = var_70[1].item;
+
+    rv = Img4DecodeEvaluateCertificateProperties(img4);
+    if (rv) {
+        return rv;
+    }
+
+    sha1_digest(img4->payloadRaw.data, img4->payloadRaw.length, img4->payload.full_digest);
+    img4->payloadHashed = 1;
+
+    rv = Img4DecodeEvaluateDictionaryProperties(&img4->manp, DictMANP, property_cb, ctx);
+    if (rv) {
+        return rv;
+    }
+
+    rv = Img4DecodeEvaluateDictionaryProperties(&img4->objp, DictOBJP, property_cb, ctx);
+    if (rv) {
+        return rv;
+    }
+
+    sha1_digest(img4->manifestRaw.data, img4->manifestRaw.length, img4->manifest.full_digest);
+    img4->manifestHashed = 1;
+
+    return 0;
+}
+
+int
+checkBoolean(DERTag tag, const DERItem *der, bool value)
+{
+    int rv;
+    bool var_11 = false;
+
+    rv = Img4DecodeGetPropertyBoolean(der, tag, &var_11);
+    if (rv) {
+        return rv;
+    }
+    return (var_11 != value) ? -1 : 0;
+}
+
+int
+checkInteger64(int less_than, DERTag tag, const DERItem *der, uint64_t value)
+{
+    int rv;
+    uint64_t var_18 = 0;
+
+    rv = Img4DecodeGetPropertyInteger64(der, tag, &var_18);
+    if (rv) {
+        return rv;
+    }
+    if (less_than == 1) {
+        return (var_18 < value) ? -1 : 0;
+    }
+    if (less_than == 0) {
+        return (var_18 != value) ? -1 : 0;
+    }
+    return 0;
+}
+
+int
+checkData(DERTag tag, const DERItem *der, void *data)
+{
+    int rv;
+    DERSize var_1C;
+    DERByte *var_18;
+
+    rv = Img4DecodeGetPropertyData(der, tag, &var_18, &var_1C);
+    if (rv) {
+        return rv;
+    }
+    return memcmp(var_18, data, var_1C) ? -1 : 0;
+}
+
+int
+image4_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
+{
+    int rv;
+    TheImg4 *img4 = ((CTX *)ctx)->img4;
+    ContextU *ctxu = ((CTX *)ctx)->unknown;
+    ContextH *ctxh = ((CTX *)ctx)->hardware;
+
+    DERByte *var_58;
+    DERSize var_50;
+    uint64_t var_48;
+    unsigned char var_3C[20];
+
+    switch (what) {
+        case DictMANP:
+            switch ((unsigned int)tag) {
+                case 'AMNM':
+                    rv = checkBoolean('AMNM', b, true);
+                    if (rv == -1) {
+                        return 0;
+                    }
+                    if (rv) {
+                        return rv;
+                    }
+                    ctxu->field_3 = 1;
+                    return 0;
+                case 'BNCH':
+                    if (!ctxh->field_2C) {
+                        return 0;
+                    }
+                    if (!ctxh->field_2A) {
+                        var_48 = ctxh->field_30;
+                    } else {
+                        rv = Img4DecodeGetRestoreInfoData(img4, 'BNCN', &var_58, &var_50);
+                        if (rv) {
+                            return rv;
+                        }
+                        if (var_50 != 8) {
+                            return 0;
+                        }
+                        memmove(&var_48, var_58, 8);
+                    }
+                    doHash(&var_48, 8, var_3C);
+                    return checkData('BNCH', b, var_3C);
+                case 'BORD':
+                    return checkInteger64(0, 'BORD', b, ctxh->BORD);
+                case 'CEPO':
+                    return checkInteger64(1, 'CEPO', b, ctxh->SEPO);
+                case 'CHIP':
+                    return checkInteger64(0, 'CHIP', b, ctxh->CHIP);
+                case 'CPRO':
+                    return checkBoolean('CPRO', b, ctxh->CPRO);
+                case 'CSEC':
+                    return checkBoolean('CSEC', b, ctxh->CSEC);
+                case 'ECID':
+                    return checkInteger64(0, 'ECID', b, ctxh->ECID);
+                case 'SDOM':
+                    return checkInteger64(0, 'SDOM', b, ctxh->SDOM);
+            }
+            return 0;
+        case DictOBJP:
+            switch ((unsigned int)tag) {
+                case 'DGST':
+                    rv = Img4DecodeCopyPayloadHash(img4, ctxu->payload_hash, 20);
+                    if (rv) {
+                        return rv;
+                    }
+                    return checkData('DGST', b, ctxu->payload_hash);
+                case 'DPRO':
+                    rv = checkBoolean('DPRO', b, true);
+                    if (rv == -1) {
+                        return 0;
+                    }
+                    if (rv) {
+                        return rv;
+                    }
+                    ctxu->field_0 = 1;
+                    return 0;
+                case 'EKEY':
+                    rv = checkBoolean('EKEY', b, true);
+                    if (rv == -1) {
+                        return 0;
+                    }
+                    if (rv) {
+                        return rv;
+                    }
+                    ctxu->field_2 = 1;
+                    return 0;
+                case 'EPRO':
+                    ctxu->field_5 = 1;
+                    rv = checkBoolean('EPRO', b, true);
+                    if (rv == -1) {
+                        return 0;
+                    }
+                    if (rv) {
+                        return rv;
+                    }
+                    ctxu->field_4 = 1;
+                    return 0;
+                case 'ESEC':
+                    ctxu->field_7 = 1;
+                    rv = checkBoolean('ESEC', b, true);
+                    if (rv == -1) {
+                        return 0;
+                    }
+                    if (rv) {
+                        return rv;
+                    }
+                    ctxu->field_6 = 1;
+                    return 0;
+            }
+            return 0;
+    }
     return 0;
 }
 
@@ -818,7 +1731,7 @@ getint(const char *s, size_t len, unsigned long long def)
 }
 
 static void
-parseargs(const char *s)
+parseargs(ContextH *ctxh, const char *s)
 {
     do {
         size_t index = strcspn(s, " \t,\r\n");
@@ -826,7 +1739,17 @@ parseargs(const char *s)
             const char *p = memchr(s, '=', index);
             if (p && p - s == 4) {
                 size_t vallen = s + index - ++p;
-                getint(p, vallen, -1);
+                switch (GET_DWORD_BE(s, 0)) {
+#define CASE(fourcc, field) case fourcc: ctxh->field = getint(p, vallen, ctxh->field); printf(#field " = 0x%llx\n", (unsigned long long)ctxh->field); break
+                    CASE('BORD', BORD);
+                    CASE('CHIP', CHIP);
+                    CASE('ECID', ECID);
+                    CASE('CPRO', CPRO);
+                    CASE('CSEC', CSEC);
+                    CASE('SDOM', SDOM);
+                    CASE('SEPO', SEPO);
+#undef CASE
+                }
             }
         }
         s += index;
@@ -837,9 +1760,46 @@ parseargs(const char *s)
 static int
 validate(TheImg4 *img4, unsigned type, const char *args)
 {
-    /* XXX TODO */
-    parseargs(args);
-    return -1;
+    int rv;
+    CTX ctx;
+
+    ctx.img4 = img4;
+    ctx.hardware = malloc(sizeof(ContextH));
+    assert(ctx.hardware);
+    memset(ctx.hardware, 0, sizeof(ContextH));
+
+    ctx.hardware->BORD = 0x12;
+    ctx.hardware->CHIP = 0x8960;
+    ctx.hardware->ECID = 0;
+    ctx.hardware->CPRO = 1;
+    ctx.hardware->CSEC = 1;
+    ctx.hardware->SDOM = 1;
+    ctx.hardware->SEPO = 1;
+    parseargs(ctx.hardware, args);
+
+#if 0
+    ctx.hardware->field_2A = 0;
+    ctx.hardware->field_2C = 0;
+    ctx.hardware->field_30 = 0;
+#elif 0
+    ctx.hardware->field_2A = 0; /* use field_30 */
+    ctx.hardware->field_2C = 1;
+    ctx.hardware->field_30 = 0x8091a2b3c4d5e6f7;
+#elif 1
+    ctx.hardware->field_2A = 1; /* use Img4DecodeGetRestoreInfoData() */
+    ctx.hardware->field_2C = 1;
+#endif
+
+    ctx.unknown = malloc(sizeof(ContextU));
+    assert(ctx.unknown);
+    memset(ctx.unknown, 0, sizeof(ContextU));
+    rv = Img4DecodeManifestExists(img4, &ctx.unknown->has_manifest);
+    if (rv == 0) {
+        rv = Img4DecodeEvaluateTrust(type, img4, image4_validate_property_callback, &ctx);
+    }
+    free(ctx.unknown);
+    free(ctx.hardware);
+    return rv;
 }
 
 static int
