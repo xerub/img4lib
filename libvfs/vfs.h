@@ -15,8 +15,8 @@ struct file_ops {
     int flags;
 };
 
-#define IOCTL_MEM_GET_DATAPTR   10	/* (void **, size_t *) */
-#define IOCTL_MEM_GET_BACKING   11	/* (void **, size_t *) */
+#define IOCTL_MEM_GET_DATAPTR   10	/* (void **, size_t *) // working data of current file */
+#define IOCTL_MEM_GET_BACKING   11	/* (void **, size_t *) // underlying backing store */
 #define IOCTL_MEM_SET_FUNCS     12	/* (realloc_t, free_t) */
 #define IOCTL_ENC_SET_NOENC     30	/* (void) */
 #define IOCTL_LZSS_GET_EXTRA    40	/* (void **, size_t *) */
@@ -30,10 +30,14 @@ struct file_ops {
 #define IOCTL_IMG4_GET_NONCE    64	/* (unsigned long long *) */
 #define IOCTL_IMG4_SET_NONCE    65	/* (unsigned long long) */
 #define IOCTL_IMG4_GET_KEYBAG   66	/* (void **, size_t *) */
-#define IOCTL_IMG4_GET_KEYBAG2  67	/* (unsigned char[48], unsigned char[48]) */
-#define IOCTL_IMG4_GET_VERSION  68	/* (void **, size_t *) */
-#define IOCTL_IMG4_SET_VERSION  69	/* (void *, size_t) */
+#define IOCTL_IMG4_SET_KEYBAG   67	/* (void *, size_t) */
+#define IOCTL_IMG4_GET_KEYBAG2  68	/* (unsigned char[48], unsigned char[48]) */
+#define IOCTL_IMG4_SET_KEYBAG2  69	/* (unsigned char[48], unsigned char[48]) */
+#define IOCTL_IMG4_GET_VERSION  70	/* (void **, size_t *) */
+#define IOCTL_IMG4_SET_VERSION  71	/* (void *, size_t) */
 #define IOCTL_IMG4_EVAL_TRUST   90	/* (void *) */
+
+#define FLAG_IMG4_SKIP_DECOMPRESSION    (1 << 0)
 
 typedef void (*free_t)(void *ptr);
 typedef void *(*realloc_t)(void *ptr, size_t size);
@@ -55,6 +59,6 @@ FHANDLE enc_reopen(FHANDLE other, const unsigned char iv[16], const unsigned cha
 FHANDLE lzss_reopen(FHANDLE other);
 FHANDLE lzfse_reopen(FHANDLE other, size_t usize);		/* pass usize=0 to decompress as much as possible */
 FHANDLE sub_reopen(FHANDLE other, off_t offset, size_t length);	/* pass length<0 to slice to the end of file */
-FHANDLE img4_reopen(FHANDLE other, const unsigned char *ivkey);
+FHANDLE img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags);
 
 #endif

@@ -1569,6 +1569,53 @@ aDEREncodeSequence(DERItem *where, DERTag topTag, const void *src, DERShort numI
 }
 
 static int
+makeKeybag(DERItem *where, const DERByte *a, const DERByte *b)
+{
+    const DERItemSpec wrap[2] = {
+        { 0 * sizeof(DERItem), ASN1_CONSTR_SEQUENCE,                        DER_ENC_WRITE_DER },
+        { 1 * sizeof(DERItem), ASN1_CONSTR_SEQUENCE,                        DER_ENC_WRITE_DER }
+    };
+
+    int rv;
+    DERItem elements[3];
+    DERItem first, second;
+    unsigned char one = 1, two = 2;
+
+    elements[0].data = &one;
+    elements[0].length = sizeof(one);
+    elements[1].data = (DERByte *)a;
+    elements[1].length = 16;
+    elements[2].data = (DERByte *)a + 16;
+    elements[2].length = 32;
+    rv = aDEREncodeSequence(&first, ASN1_CONSTR_SEQUENCE, elements, 3, kbagSpecs, -1);
+    if (rv) {
+        return rv;
+    }
+
+    elements[0].data = &two;
+    elements[0].length = sizeof(two);
+    elements[1].data = (DERByte *)b;
+    elements[1].length = 16;
+    elements[2].data = (DERByte *)b + 16;
+    elements[2].length = 32;
+    rv = aDEREncodeSequence(&second, ASN1_CONSTR_SEQUENCE, elements, 3, kbagSpecs, -1);
+    if (rv) {
+        free(first.data);
+        return rv;
+    }
+
+    elements[0].data = first.data;
+    elements[0].length = first.length;
+    elements[1].data = second.data;
+    elements[1].length = second.length;
+    rv = aDEREncodeSequence(where, ASN1_CONSTR_SEQUENCE, elements, 2, wrap, -1);
+    free(first.data);
+    free(second.data);
+
+    return rv;
+}
+
+static int
 makePayload(DERItem *where, unsigned type, DERItem *version, DERItem *keybag, DERItem *compr, unsigned char *data, size_t size)
 {
     char IM4P[] = "IM4P";
@@ -1994,6 +2041,56 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             }
             break;
         }
+        case IOCTL_IMG4_SET_KEYBAG2: {
+            DERItem item;
+            const DERByte *a = va_arg(ap, DERByte *);
+            const DERByte *b = va_arg(ap, DERByte *);
+            if (!b) {
+                b = a;
+            }
+            rv = makeKeybag(&item, a, b);
+            if (rv == 0) {
+                free(ctx->keybag.data);
+                ctx->keybag = item;
+            }
+            break;
+        }
+        case IOCTL_IMG4_SET_KEYBAG: {
+            unsigned i;
+            DERTag tag;
+            DERSequence seq;
+            DERDecodedInfo info;
+            DERItem kbag;
+            kbag.data = va_arg(ap, void *);
+            kbag.length = va_arg(ap, size_t);
+            if (DERDecodeSeqInit(&kbag, &tag, &seq)) {
+                break;
+            }
+            if (tag != ASN1_CONSTR_SEQUENCE) {
+                break;
+            }
+            for (i = 0; !DERDecodeSeqNext(&seq, &info); i++) {
+                DERItem items[3];
+                if (info.tag != ASN1_CONSTR_SEQUENCE) {
+                    break;
+                }
+                if (DERParseSequenceContent(&info.content, 3, kbagSpecs, items, 3 * sizeof(DERItem))) {
+                    break;
+                }
+                if (items[1].length != 16 || items[2].length != 32) {
+                    break;
+                }
+            }
+            if (i == 2) {
+                DERItem knew;
+                rv = derdup(&knew, &kbag);
+                if (rv == 0) {
+                    free(ctx->keybag.data);
+                    ctx->keybag = knew;
+                }
+            }
+            break;
+        }
         case IOCTL_IMG4_GET_TYPE: {
             unsigned *type = va_arg(ap, unsigned *);
             *type = ctx->type;
@@ -2123,7 +2220,7 @@ img4_length(FHANDLE fd_)
 }
 
 FHANDLE
-img4_reopen(FHANDLE other, const unsigned char *ivkey)
+img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
 {
     int rv;
     struct file_ops_img4 *ops, *ctx;
@@ -2194,6 +2291,9 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey)
             pfd = enc_reopen(pfd, ivkey, ivkey + 16);
         }
     }
+    if (flags & FLAG_IMG4_SKIP_DECOMPRESSION) {
+        goto okay;
+    }
 #ifdef iOS10
     if (img4->payload.compression.data && img4->payload.compression.length) {
         DERItem tmp[2];
@@ -2212,6 +2312,7 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey)
         goto freeimg;
     }
 
+  okay:
     ops = calloc(1, sizeof(struct file_ops_img4));
     if (!ops) {
         goto closefd;

@@ -70,8 +70,8 @@ main(int argc, char **argv)
 #endif
 
     //FHANDLE orig;
-    //fd = img4_reopen(orig = memory_open_from_file("kc_iPhone6,1_9.0_13A344.bin", O_RDWR), ivkey);
-    fd = img4_reopen(file_open("kc_iPhone6,1_9.0_13A344.bin", O_RDWR), ivkey);
+    //fd = img4_reopen(orig = memory_open_from_file("kc_iPhone6,1_9.0_13A344.bin", O_RDWR), ivkey, 0);
+    fd = img4_reopen(file_open("kc_iPhone6,1_9.0_13A344.bin", O_RDWR), ivkey, 0);
     if (!fd) {
         fprintf(stderr, "cannot parse\n");
         return -1;

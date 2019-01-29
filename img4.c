@@ -275,7 +275,7 @@ make_img4(const char *iname, FHANDLE *orig)
     };
     size_t total;
     unsigned char *tmp, xfer[4096];
-    FHANDLE fd, src = memory_open_from_file(iname, O_RDONLY);
+    FHANDLE fd, src = file_open(iname, O_RDONLY);
     if (!src) {
         return NULL;
     }
@@ -292,8 +292,48 @@ make_img4(const char *iname, FHANDLE *orig)
         src->close(src);
         return NULL;
     }
-    fd = img4_reopen(*orig, NULL);
+    fd = img4_reopen(*orig, NULL, 0);
     if (fd) {
+        fd->lseek(fd, 0, SEEK_SET);
+        for (;;) {
+            ssize_t n, written;
+            n = src->read(src, xfer, sizeof(xfer));
+            if (n <= 0) {
+                break;
+            }
+            written = fd->write(fd, xfer, n);
+            if (written != n) {
+                break;
+            }
+            total -= written;
+        }
+        if (total) {
+            fd->close(fd);
+            fd = NULL;
+        }
+    }
+    src->close(src);
+    return fd;
+}
+
+static FHANDLE
+replace_img4(const char *iname, const char *replacer, FHANDLE *orig)
+{
+    size_t total;
+    unsigned char xfer[4096];
+    FHANDLE fd, src = file_open(replacer, O_RDONLY);
+    if (!src) {
+        return NULL;
+    }
+    total = src->length(src);
+    *orig = memory_open_from_file(iname, O_RDWR);
+    if (*orig == NULL) {
+        src->close(src);
+        return NULL;
+    }
+    fd = img4_reopen(*orig, NULL, FLAG_IMG4_SKIP_DECOMPRESSION);
+    if (fd) {
+        fd->ftruncate(fd, total);
         fd->lseek(fd, 0, SEEK_SET);
         for (;;) {
             ssize_t n, written;
@@ -323,6 +363,7 @@ usage(const char *argv0)
     printf("    -i <file>       read from <file>\n");
     printf("    -o <file>       write image to <file>\n");
     printf("    -k <ivkey>      use <ivkey> to decrypt\n");
+    printf("    -z              operate on compressed data\n");
     printf("getters:\n");
     printf("    -e <file>       write extra to <file>\n");
     printf("    -g <file>       write keybag to <file>\n");
@@ -338,6 +379,9 @@ usage(const char *argv0)
     printf("    -M <file>       set ticket from <file>\n");
     printf("    -N <nonce>      set <nonce> if ticket is set/present\n");
     printf("    -V <version>    set <version>\n");
+    printf("    -R <file>       replace payload\n");
+    printf("    -G <file>       set keybag from file (internal use only)\n");
+    printf("    -B <bag> <bag>  create keybag (internal use only)\n");
     printf("    -D              leave IMG4 decrypted\n");
     printf("    -J              convert lzfse to lzss\n");
     printf("    -A              treat input as plain file and wrap it up into ASN.1\n");
@@ -368,11 +412,16 @@ main(int argc, char **argv)
     const char *set_extra = NULL;
     const char *set_manifest = NULL;
     const char *set_version = NULL;
+    const char *set_replacer = NULL;
+    const char *set_kb1 = NULL;
+    const char *set_kb2 = NULL;
     int set_nonce = 0;
     uint64_t nonce = 0;
+    const char *set_keybag = NULL;
     int set_decrypt = 0;
     int set_convert = 0;
     int set_wrap = 0;
+    int img4flags = 0;
 
     int rv, rc = 0;
     unsigned char *buf;
@@ -380,7 +429,7 @@ main(int argc, char **argv)
     int modify;
     unsigned type;
     FHANDLE fd, orig = NULL;
-    unsigned char *k, ivkey[16 + 32];
+    unsigned char *k, ivkey[16 + 32], kb1[16 + 32], kb2[16 + 32];
 
     while (--argc > 0) {
         const char *arg = *++argv;
@@ -405,6 +454,9 @@ main(int argc, char **argv)
                 continue;
             case 'A':
                 set_wrap = 1;
+                continue;
+            case 'z':
+                img4flags |= FLAG_IMG4_SKIP_DECOMPRESSION;
                 continue;
             case 'i':
                 if (argc >= 2) { iname = *++argv; argc--; continue; }
@@ -432,6 +484,12 @@ main(int argc, char **argv)
                 if (argc >= 2) { set_nonce = 1; nonce = strtoull(*++argv, NULL, 16); argc--; continue; }
             case 'V':
                 if (argc >= 2) { set_version = *++argv; argc--; continue; }
+            case 'R':
+                if (argc >= 2) { set_replacer = *++argv; argc--; continue; }
+            case 'G':
+                if (argc >= 2) { set_keybag = *++argv; argc--; continue; }
+            case 'B':
+                if (argc >= 3) { set_kb1 = *++argv; argc--; set_kb2 = *++argv; argc--; continue; }
             /* fallthrough */
                 fprintf(stderr, "[e] argument to '%s' is missing\n", arg);
                 return -1;
@@ -452,7 +510,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap;
+    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer;
 
     k = (unsigned char *)ik;
     if (ik) {
@@ -462,20 +520,29 @@ main(int argc, char **argv)
         }
         k = ivkey;
     }
+    if (set_kb1 && (!set_kb2 || str2hex(16 + 32, kb1, set_kb1) != 16 + 32 || str2hex(16 + 32, kb2, set_kb2) != 16 + 32)) {
+        fprintf(stderr, "[e] invalid keybags\n");
+        return -1;
+    }
 
     // open
 
     if (!modify) {
-        fd = img4_reopen(file_open(iname, O_RDONLY), k);
+        fd = img4_reopen(file_open(iname, O_RDONLY), k, img4flags);
     } else if (set_wrap) {
         if (!oname) {
             oname = iname;
         }
         fd = make_img4(iname, &orig);
+    } else if (set_replacer) {
+        if (!oname) {
+            oname = iname;
+        }
+        fd = replace_img4(iname, set_replacer, &orig);
     } else if (!oname) {
-        fd = img4_reopen(file_open(iname, O_RDWR), k);
+        fd = img4_reopen(file_open(iname, O_RDWR), k, img4flags);
     } else {
-        fd = img4_reopen(orig = memory_open_from_file(iname, O_RDWR), k);
+        fd = img4_reopen(orig = memory_open_from_file(iname, O_RDWR), k, img4flags);
     }
     if (!fd) {
         fprintf(stderr, "[e] cannot open '%s'\n", iname);
@@ -633,6 +700,24 @@ main(int argc, char **argv)
         rv = fd->ioctl(fd, IOCTL_LZFSE_SET_LZSS);
         if (rv) {
             fprintf(stderr, "[e] cannot set convert\n");
+        }
+        rc |= rv;
+    }
+    if (set_kb1) {
+        rv = fd->ioctl(fd, IOCTL_IMG4_SET_KEYBAG2, kb1, kb2);
+        if (rv) {
+            fprintf(stderr, "[e] cannot set keybag\n");
+        }
+        rc |= rv;
+    }
+    if (set_keybag) {
+        rv = read_file(set_keybag, &buf, &sz);
+        if (rv == 0) {
+            rv = fd->ioctl(fd, IOCTL_IMG4_SET_KEYBAG, buf, sz);
+            if (rv) {
+                fprintf(stderr, "[e] cannot set keybag\n");
+            }
+            free(buf);
         }
         rc |= rv;
     }

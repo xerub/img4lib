@@ -147,7 +147,7 @@ memory_ioctl(FHANDLE fd_, unsigned long req, ...)
     return rv;
 }
 
-static int
+int
 memory_ftruncate(FHANDLE fd_, off_t length)
 {
     struct file_ops_memory *fd = (struct file_ops_memory *)fd_;

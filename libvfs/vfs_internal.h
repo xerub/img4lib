@@ -15,6 +15,7 @@ struct file_ops_memory {
 };
 
 FHANDLE memory_openex(struct file_ops_memory *ops, int flags, void *buf, size_t size);
+int memory_ftruncate(FHANDLE fd, off_t length);
 int memory_close(FHANDLE fd);
 
 #if defined(__LITTLE_ENDIAN__) || defined(__x86_64__) || defined(__i386__) /*XXX __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__*/

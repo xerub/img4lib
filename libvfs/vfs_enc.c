@@ -82,14 +82,15 @@ enc_fsync(FHANDLE fd)
         }
         memcpy(tmp, buf, chunk);
         if (chunk & 15) {
-            memset(tmp + chunk, 0, (16 - (chunk & 15)) & 15);
+            memset(tmp + chunk, 0, 16 - (chunk & 15));
+            chunk = (chunk + 15) & ~15;
         }
 #ifdef USE_CORECRYPTO
-        cccbc_update(ccaes_cbc_encrypt_mode(), aesctx, iv_ctx, (chunk + 15) / 16, tmp, tmp);
+        cccbc_update(ccaes_cbc_encrypt_mode(), aesctx, iv_ctx, chunk / 16, tmp, tmp);
 #elif defined(USE_COMMONCRYPTO)
-        CCCryptorUpdate(cryptor, tmp, (chunk + 15) & ~15, tmp, (chunk + 15) & ~15, NULL);
+        CCCryptorUpdate(cryptor, tmp, chunk, tmp, chunk, NULL);
 #else
-        AES_cbc_encrypt(tmp, tmp, (chunk + 15) & ~15, &encryptKey, theiv, AES_ENCRYPT);
+        AES_cbc_encrypt(tmp, tmp, chunk, &encryptKey, theiv, AES_ENCRYPT);
 #endif
         written = other->write(other, tmp, chunk);
         if (written != chunk) {
@@ -99,6 +100,9 @@ enc_fsync(FHANDLE fd)
             CCCryptorRelease(cryptor);
 #endif
             return -1;
+        }
+        if (chunk > total) {
+            chunk = total;
         }
         buf += chunk;
         total -= chunk;
@@ -133,6 +137,27 @@ enc_close(FHANDLE fd)
     memory_close(fd);
     rc = other->close(other);
     return rv ? rv : rc;
+}
+
+static int
+enc_ftruncate(FHANDLE fd, off_t length)
+{
+    int rv;
+    FHANDLE other;
+    struct file_ops_enc *ctx = (struct file_ops_enc *)fd;
+
+    if (!fd) {
+        return -1;
+    }
+
+    other = ctx->other;
+
+    rv = memory_ftruncate(fd, length);
+    if (rv) {
+        return rv;
+    }
+
+    return other->ftruncate(other, length);
 }
 
 static int
@@ -236,6 +261,7 @@ enc_reopen(FHANDLE other, const unsigned char iv[16], const unsigned char key[32
     }
     ctx->noencrypt = 0;
 
+    fd->ftruncate = enc_ftruncate;
     fd->ioctl = enc_ioctl;
     fd->fsync = enc_fsync;
     fd->close = enc_close;
