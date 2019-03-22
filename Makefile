@@ -61,6 +61,7 @@ CCSOURCES = \
 	corecrypto/gladman/ccaes_gladman_cbc_encrypt.c \
 	corecrypto/arm/aesdata.s \
 	corecrypto/arm/aesdecbc.s \
+	corecrypto/arm/aesencbc.s \
 	corecrypto/arm/aeskey.s \
 	corecrypto/arm/ccaes_arm_cbc_decrypt_mode.c \
 	corecrypto/arm/ccaes_arm_cbc_encrypt_mode.c \
