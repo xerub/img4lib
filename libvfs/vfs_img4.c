@@ -2257,6 +2257,19 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
         goto freebuf;
     }
 
+    if (flags == O_RDONLY) {
+        DERDecodedInfo seq;
+        item.data = buf;
+        item.length = total;
+        rv = DERDecodeItem(&item, &seq);
+        if (rv == 0 && seq.tag == ASN1_CONSTR_SEQUENCE) {
+            if (item.data + item.length > seq.content.data + seq.content.length) {
+                fprintf(stderr, "[w] extra %zu bytes discarded\n", item.data + item.length - (seq.content.data + seq.content.length));
+                total = seq.content.data + seq.content.length - item.data;
+            }
+        }
+    }
+
     img4 = parse(buf, total);
     if (!img4) {
         goto freebuf;
