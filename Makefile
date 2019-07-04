@@ -5,14 +5,13 @@
 # Darwin can use CommonCrypto instead of OpenSSL
 #COMMONCRYPTO = 1
 
-CC = gcc
 CFLAGS = -Wall -W -pedantic
 CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unused-parameter
 CFLAGS += -O2 -I. -g -DiOS10 -Ilzfse/src
 CFLAGS += -DDER_MULTIBYTE_TAGS=1 -DDER_TAG_SIZE=8
 CFLAGS += -D__unused="__attribute__((unused))"
 
-LD = gcc
+LD ?= gcc
 LDFLAGS = -g -Llzfse/build/bin
 LDLIBS = -llzfse
 
@@ -102,21 +101,24 @@ LIBOBJECTS = $(LIBSOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
 CCOBJECTS = $(addsuffix .o,$(basename $(CCSOURCES)))
 
 ifdef CORECRYPTO
-CC = clang
+CC ?= clang
 CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
 OBJECTS += $(CCOBJECTS)
 LIBOBJECTS += $(CCOBJECTS)
 else
 ifdef COMMONCRYPTO
-CC = clang
+CC ?= clang
 CFLAGS += -DUSE_COMMONCRYPTO=1
 LDLIBS += -framework Security -framework CoreFoundation
 else
+CC ?= gcc
 CFLAGS += -Wno-deprecated-declarations
 LDLIBS += -lcrypto
 endif
 endif
+
+export CC
 
 .c.o:
 	$(CC) -o $@ $(CFLAGS) -c $<
@@ -125,14 +127,18 @@ endif
 
 all: img4
 
-img4: $(OBJECTS)
+img4: $(OBJECTS) lzfse/build/bin/liblzfse.a
 	$(LD) -o $@ $(LDFLAGS) $^ $(LDLIBS)
+
+lzfse/build/bin/liblzfse.a:
+	$(MAKE) -C lzfse clean build/bin/liblzfse.a
 
 libimg4.a: $(LIBOBJECTS)
 	$(LIBTOOL) $(LIBTOOL_FLAGS) -o $@ $^
 
 clean:
 	-$(RM) $(OBJECTS) $(LIBOBJECTS) $(CCOBJECTS)
+	$(MAKE) -C lzfse clean
 
 distclean: clean
 	-$(RM) img4 libimg4.a
