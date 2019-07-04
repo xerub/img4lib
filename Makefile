@@ -16,9 +16,14 @@ LD = gcc
 LDFLAGS = -g -Llzfse/build/bin
 LDLIBS = -llzfse
 
+LIBTOOL = libtool
+LIBTOOL_FLAGS = -static
+
 SOURCES = \
 	lzss.c \
 	img4.c
+
+LIBSOURCES = lzss.c
 
 VFSSOURCES = \
 	libvfs/vfs_file.c \
@@ -93,6 +98,7 @@ CCSOURCES = \
 	corecrypto/cczp_sqr.c
 
 OBJECTS = $(SOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
+LIBOBJECTS = $(LIBSOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
 CCOBJECTS = $(addsuffix .o,$(basename $(CCSOURCES)))
 
 ifdef CORECRYPTO
@@ -100,6 +106,7 @@ CC = clang
 CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
 OBJECTS += $(CCOBJECTS)
+LIBOBJECTS += $(CCOBJECTS)
 else
 ifdef COMMONCRYPTO
 CC = clang
@@ -121,8 +128,11 @@ all: img4
 img4: $(OBJECTS)
 	$(LD) -o $@ $(LDFLAGS) $^ $(LDLIBS)
 
+libimg4.a: $(LIBOBJECTS)
+	$(LIBTOOL) $(LIBTOOL_FLAGS) -o $@ $^
+
 clean:
-	-$(RM) $(OBJECTS) $(CCOBJECTS)
+	-$(RM) $(OBJECTS) $(LIBOBJECTS) $(CCOBJECTS)
 
 distclean: clean
-	-$(RM) img4
+	-$(RM) img4 libimg4.a
