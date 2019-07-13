@@ -11,7 +11,7 @@ CFLAGS += -O2 -I. -g -DiOS10 -Ilzfse/src
 CFLAGS += -DDER_MULTIBYTE_TAGS=1 -DDER_TAG_SIZE=8
 CFLAGS += -D__unused="__attribute__((unused))"
 
-LD ?= gcc
+LD = gcc
 LDFLAGS = -g -Llzfse/build/bin
 LDLIBS = -llzfse
 
@@ -101,21 +101,28 @@ LIBOBJECTS = $(LIBSOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
 CCOBJECTS = $(addsuffix .o,$(basename $(CCSOURCES)))
 
 ifdef CORECRYPTO
-CC ?= clang
+CC = clang
 CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
 OBJECTS += $(CCOBJECTS)
 LIBOBJECTS += $(CCOBJECTS)
 else
 ifdef COMMONCRYPTO
-CC ?= clang
+CC = clang
 CFLAGS += -DUSE_COMMONCRYPTO=1
 LDLIBS += -framework Security -framework CoreFoundation
 else
-CC ?= gcc
+CC = gcc
 CFLAGS += -Wno-deprecated-declarations
 LDLIBS += -lcrypto
 endif
+endif
+
+ifdef OVERRIDE_LD
+LD = $(OVERRIDE_LD)
+endif
+ifdef OVERRIDE_CC
+CC = $(OVERRIDE_CC)
 endif
 
 export CC
