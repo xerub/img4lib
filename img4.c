@@ -369,6 +369,7 @@ usage(const char *argv0)
     printf("    -g <file>       write keybag to <file>\n");
     printf("    -m <file>       write ticket to <file>\n");
     printf("    -c <info>       check signature with <info>\n");
+    printf("    -f              check hash against manifest\n");
     printf("    -n              print nonce\n");
     printf("    -b              print kbags\n");
     printf("    -v              print version\n");
@@ -457,6 +458,9 @@ main(int argc, char **argv)
                 continue;
             case 'z':
                 img4flags |= FLAG_IMG4_SKIP_DECOMPRESSION;
+                continue;
+            case 'f':
+                img4flags |= FLAG_IMG4_VERIFY_HASH;
                 continue;
             case 'i':
                 if (argc >= 2) { iname = *++argv; argc--; continue; }

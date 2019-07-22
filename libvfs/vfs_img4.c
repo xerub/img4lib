@@ -11,6 +11,7 @@
 #ifdef USE_CORECRYPTO
 #include <corecrypto/ccrsa.h>
 #include <corecrypto/ccsha1.h>
+#include <corecrypto/ccsha2.h>
 #elif defined(USE_COMMONCRYPTO)
 #include <CommonCrypto/CommonCrypto.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -1435,6 +1436,78 @@ image4_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *c
     return 0;
 }
 
+static int
+objp_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
+{
+    int rv;
+    if (what == DictOBJP && (unsigned int)tag == 'DGST') {
+        const TheImg4 *img4 = (TheImg4 *)ctx;
+        unsigned char digest[64];
+
+        DERSize var_1C;
+        DERByte *var_18;
+        rv = Img4DecodeGetPropertyData(b, tag, &var_18, &var_1C);
+        if (rv) {
+            return rv;
+        }
+
+        if (var_1C == 20) {
+            sha1_digest(img4->payloadRaw.data, img4->payloadRaw.length, digest);
+        } else {
+#ifdef USE_CORECRYPTO
+            ccdigest(&ccsha384_ltc_di, img4->payloadRaw.length, img4->payloadRaw.data, digest);
+#elif defined(USE_COMMONCRYPTO)
+            CC_SHA384(img4->payloadRaw.data, img4->payloadRaw.length, digest);
+#else
+            SHA384(img4->payloadRaw.data, img4->payloadRaw.length, digest);
+#endif
+        }
+        return !!memcmp(digest, var_18, var_1C);
+    }
+    return 0;
+}
+
+static int
+fast_check_hash(const TheImg4 *img4, unsigned int type)
+{
+    int rv;
+    DERDecodedInfo var_88;
+    DERMonster var_70[2];
+    DERItem manb, manp, objp;
+
+    if (img4->manifestRaw.data == NULL) {
+        return DR_ParamErr;
+    }
+
+    rv = DERDecodeItem(&img4->manifest.theset, &var_88);
+    if (rv) {
+        return rv;
+    }
+    if (var_88.tag != ASN1_CONSTR_SET) {
+        return -1;
+    }
+
+    rv = DERImg4DecodeFindProperty(&var_88.content, E000000000000000 | 'MANB', ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+    manb = var_70[1].item;
+
+    rv = DERImg4DecodeFindProperty(&manb, E000000000000000 | 'MANP', ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+    manp = var_70[1].item;
+
+    rv = DERImg4DecodeFindProperty(&manb, E000000000000000 | type, ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+    objp = var_70[1].item;
+
+    return Img4DecodeEvaluateDictionaryProperties(&objp, DictOBJP, objp_validate_property_callback, (void *)img4);
+}
+
 #include <errno.h>
 #include <fcntl.h>
 #ifdef USE_CORECRYPTO
@@ -2284,6 +2357,14 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     if (rv) {
         fprintf(stderr, "[e] cannot identify\n");
         goto freeimg;
+    }
+
+    if (flags & FLAG_IMG4_VERIFY_HASH) {
+        rv = fast_check_hash(img4, type);
+        if (rv) {
+            printf("[e] image fast check failed: %d\n", rv);
+            goto freeimg;
+        }
     }
 
     dup = calloc(1, item.length);
