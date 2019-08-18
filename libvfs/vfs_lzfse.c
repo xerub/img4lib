@@ -21,7 +21,7 @@ lzfse_fsync(FHANDLE fd)
     struct file_ops_lzfse *ctx = (struct file_ops_lzfse *)fd;
     size_t csize;
     size_t total, written;
-    uint8_t *aux, *buf;
+    uint8_t *buf;
 
     if (!fd) {
         return -1;
@@ -71,14 +71,7 @@ lzfse_fsync(FHANDLE fd)
         return -1;
     }
 
-    aux = malloc(lzfse_encode_scratch_size());
-    if (!aux) {
-        free(buf);
-        return -1;
-    }
-
-    csize = lzfse_encode_buffer(buf, total + 256, MEMFD(fd)->buf, total, aux);
-    free(aux);
+    csize = lzfse_encode_buffer(buf, total + 256, MEMFD(fd)->buf, total, NULL);
     if (!csize) {
         free(buf);
         return -1;
@@ -163,7 +156,7 @@ lzfse_reopen(FHANDLE other, size_t usize)
     size_t outlen;
     size_t csize;
     unsigned char hdr[4];
-    unsigned char *buf, *dec, *aux;
+    unsigned char *buf, *dec;
     struct file_ops_lzfse *ctx;
     off_t where;
 
@@ -202,13 +195,7 @@ lzfse_reopen(FHANDLE other, size_t usize)
         if (!dec) {
             goto freebuf;
         }
-        aux = malloc(lzfse_decode_scratch_size());
-        if (!aux) {
-            free(dec);
-            goto freebuf;
-        }
-        outlen = lzfse_decode_buffer(dec, usize + 1, buf, csize, aux);
-        free(aux);
+        outlen = lzfse_decode_buffer(dec, usize + 1, buf, csize, NULL);
         free(buf);
         buf = dec;
         if (outlen != usize) {
@@ -223,22 +210,14 @@ lzfse_reopen(FHANDLE other, size_t usize)
         goto freebuf;
     }
 
-    aux = malloc(lzfse_decode_scratch_size());
-    if (!aux) {
-        free(dec);
-        goto freebuf;
-    }
-
-    while ((outlen = lzfse_decode_buffer(dec, usize, buf, csize, aux)) >= usize) {
+    while ((outlen = lzfse_decode_buffer(dec, usize, buf, csize, NULL)) >= usize) {
         void *tmp = realloc(dec, usize *= 2);
         if (!tmp) {
-            free(aux);
             free(dec);
             goto freebuf;
         }
         dec = tmp;
     }
-    free(aux);
     free(buf);
     buf = dec;
     if (!outlen) {
