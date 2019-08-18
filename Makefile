@@ -14,7 +14,11 @@ CFLAGS += -D__unused="__attribute__((unused))"
 
 LD = gcc
 LDFLAGS = -g -Llzfse/build/bin
+ifneq (,$(wildcard /usr/lib/libcompression.dylib))
+LDLIBS = -lcompression
+else
 LDLIBS = -llzfse
+endif
 
 SOURCES = \
 	lzss.c \

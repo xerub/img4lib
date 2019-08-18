@@ -3,7 +3,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef __APPLE__
+typedef enum {
+    COMPRESSION_LZFSE       = 0x801,
+    COMPRESSION_LZFSE_SMALL = 0x891,
+} compression_algorithm;
+size_t compression_encode_buffer(uint8_t *restrict dst_buffer, size_t dst_size, const uint8_t *restrict src_buffer, size_t src_size, void *restrict scratch_buffer, compression_algorithm algorithm);
+size_t compression_decode_buffer(uint8_t *restrict dst_buffer, size_t dst_size, const uint8_t *restrict src_buffer, size_t src_size, void *restrict scratch_buffer, compression_algorithm algorithm);
+#define lzfse_decode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer) compression_decode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer, COMPRESSION_LZFSE_SMALL)
+#define lzfse_encode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer) compression_encode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer, COMPRESSION_LZFSE_SMALL)
+#else
 #include "lzfse.h"
+#endif
 #include "vfs.h"
 #include "vfs_internal.h"
 #include "lzss.h"
@@ -71,6 +82,10 @@ lzfse_fsync(FHANDLE fd)
         return -1;
     }
 
+#ifndef lzfse_encode_buffer
+    // XXX we're using the public library, which doesn't support COMPRESSION_LZFSE_SMALL
+    fprintf(stderr, "[w] lzfse encoding\n");
+#endif
     csize = lzfse_encode_buffer(buf, total + 256, MEMFD(fd)->buf, total, NULL);
     if (!csize) {
         free(buf);
