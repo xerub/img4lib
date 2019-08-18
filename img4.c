@@ -385,6 +385,7 @@ usage(const char *argv0)
     printf("    -B <bag> <bag>  create keybag (internal use only)\n");
     printf("    -D              leave IMG4 decrypted\n");
     printf("    -J              convert lzfse to lzss\n");
+    printf("    -U              convert lzfse to plain\n");
     printf("    -A              treat input as plain file and wrap it up into ASN.1\n");
     printf("note: if no modifier is present and -o is specified, extract the bare image\n");
     printf("note: if modifiers are present and -o is not specified, modify the input file\n");
@@ -452,6 +453,9 @@ main(int argc, char **argv)
                 continue;
             case 'J':
                 set_convert = 1;
+                continue;
+            case 'U':
+                set_convert = -1;
                 continue;
             case 'A':
                 set_wrap = 1;
@@ -700,8 +704,15 @@ main(int argc, char **argv)
         }
         rc |= rv;
     }
-    if (set_convert) {
+    if (set_convert == 1) {
         rv = fd->ioctl(fd, IOCTL_LZFSE_SET_LZSS);
+        if (rv) {
+            fprintf(stderr, "[e] cannot set convert\n");
+        }
+        rc |= rv;
+    }
+    if (set_convert == -1) {
+        rv = fd->ioctl(fd, IOCTL_LZFSE_SET_NOCOMP);
         if (rv) {
             fprintf(stderr, "[e] cannot set convert\n");
         }

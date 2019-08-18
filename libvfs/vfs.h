@@ -22,6 +22,7 @@ struct file_ops {
 #define IOCTL_LZSS_GET_EXTRA    40	/* (void **, size_t *) */
 #define IOCTL_LZSS_SET_EXTRA    41	/* (void *, size_t) */
 #define IOCTL_LZFSE_SET_LZSS    42	/* (void) */
+#define IOCTL_LZFSE_SET_NOCOMP  43	/* (void) */
 
 #define IOCTL_IMG4_GET_TYPE     60	/* (unsigned *) */
 #define IOCTL_IMG4_SET_TYPE     61	/* (unsigned) */

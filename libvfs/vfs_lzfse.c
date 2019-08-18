@@ -22,7 +22,7 @@ size_t compression_decode_buffer(uint8_t *restrict dst_buffer, size_t dst_size, 
 struct file_ops_lzfse {
     struct file_ops_memory ops;
     FHANDLE other;
-    int to_lzss;
+    int convert;
 };
 
 static int
@@ -49,7 +49,7 @@ lzfse_fsync(FHANDLE fd)
 
     total = MEMFD(fd)->size;
 
-    if (ctx->to_lzss) {
+    if (ctx->convert == 1) {
         uint32_t adler;
         uint8_t *end, *ptr = MEMFD(fd)->buf;
 
@@ -74,6 +74,15 @@ lzfse_fsync(FHANDLE fd)
         PUT_DWORD_BE(buf, 16, csize - 0x180);
         PUT_DWORD_BE(buf, 20, 1);
         memset(buf + 24, 0, 0x180 - 24);
+        goto okay;
+    }
+    if (ctx->convert == -1) {
+        csize = total;
+        buf = malloc(total);
+        if (!buf) {
+            return -1;
+        }
+        memcpy(buf, MEMFD(fd)->buf, total);
         goto okay;
     }
 
@@ -149,7 +158,13 @@ lzfse_ioctl(FHANDLE fd, unsigned long req, ...)
         }
         case IOCTL_LZFSE_SET_LZSS: {
             MEMFD(fd)->dirty = 1;
-            ctx->to_lzss = 1;
+            ctx->convert = 1;
+            rv = 0;
+            break;
+        }
+        case IOCTL_LZFSE_SET_NOCOMP: {
+            MEMFD(fd)->dirty = 1;
+            ctx->convert = -1;
             rv = 0;
             break;
         }
@@ -251,7 +266,7 @@ lzfse_reopen(FHANDLE other, size_t usize)
     }
     ctx = (struct file_ops_lzfse *)fd;
     ctx->other = other;
-    ctx->to_lzss = 0;
+    ctx->convert = 0;
 
     fd->ioctl = lzfse_ioctl;
     fd->fsync = lzfse_fsync;

@@ -2250,6 +2250,7 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             rv = 0;
             break;
         }
+        case IOCTL_LZFSE_SET_NOCOMP:
         case IOCTL_LZFSE_SET_LZSS: if (fd->flags == O_RDONLY) break; else {
             if (ctx->lzfse) {
                 FHANDLE pfd = ctx->pfd;
