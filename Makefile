@@ -5,7 +5,6 @@
 # Darwin can use CommonCrypto instead of OpenSSL
 #COMMONCRYPTO = 1
 
-CC = gcc
 CFLAGS = -Wall -W -pedantic
 CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unused-parameter
 CFLAGS += -O2 -I. -g -DiOS10 -Ilzfse/src
@@ -20,9 +19,14 @@ else
 LDLIBS = -llzfse
 endif
 
+LIBTOOL = libtool
+LIBTOOL_FLAGS = -static
+
 SOURCES = \
 	lzss.c \
 	img4.c
+
+LIBSOURCES = lzss.c
 
 VFSSOURCES = \
 	libvfs/vfs_file.c \
@@ -97,6 +101,7 @@ CCSOURCES = \
 	corecrypto/cczp_sqr.c
 
 OBJECTS = $(SOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
+LIBOBJECTS = $(LIBSOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
 CCOBJECTS = $(addsuffix .o,$(basename $(CCSOURCES)))
 
 ifdef CORECRYPTO
@@ -104,16 +109,27 @@ CC = clang
 CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
 OBJECTS += $(CCOBJECTS)
+LIBOBJECTS += $(CCOBJECTS)
 else
 ifdef COMMONCRYPTO
 CC = clang
 CFLAGS += -DUSE_COMMONCRYPTO=1
 LDLIBS += -framework Security -framework CoreFoundation
 else
+CC = gcc
 CFLAGS += -Wno-deprecated-declarations
 LDLIBS += -lcrypto
 endif
 endif
+
+ifdef OVERRIDE_LD
+LD = $(OVERRIDE_LD)
+endif
+ifdef OVERRIDE_CC
+CC = $(OVERRIDE_CC)
+endif
+
+export CC
 
 .c.o:
 	$(CC) -o $@ $(CFLAGS) -c $<
@@ -122,11 +138,18 @@ endif
 
 all: img4
 
-img4: $(OBJECTS)
+img4: $(OBJECTS) lzfse/build/bin/liblzfse.a
 	$(LD) -o $@ $(LDFLAGS) $^ $(LDLIBS)
 
+lzfse/build/bin/liblzfse.a:
+	$(MAKE) -C lzfse clean build/bin/liblzfse.a
+
+libimg4.a: $(LIBOBJECTS)
+	$(LIBTOOL) $(LIBTOOL_FLAGS) -o $@ $^
+
 clean:
-	-$(RM) $(OBJECTS) $(CCOBJECTS)
+	-$(RM) $(OBJECTS) $(LIBOBJECTS) $(CCOBJECTS)
+	$(MAKE) -C lzfse clean
 
 distclean: clean
-	-$(RM) img4
+	-$(RM) img4 libimg4.a
