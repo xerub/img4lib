@@ -40,10 +40,6 @@
 
 #define panic(fn, args...) do { fprintf(stderr, fn args); exit(1); } while (0)
 
-#ifdef iOS10
-#include "lzfse.h"
-#endif
-
 typedef enum {
     DictMANP,
     DictOBJP

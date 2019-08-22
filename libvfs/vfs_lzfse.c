@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#ifdef __APPLE__
+#ifdef USE_LIBCOMPRESSION
 typedef enum {
     COMPRESSION_LZFSE       = 0x801,
     COMPRESSION_LZFSE_SMALL = 0x891,
@@ -13,6 +13,7 @@ size_t compression_decode_buffer(uint8_t *restrict dst_buffer, size_t dst_size, 
 #define lzfse_decode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer) compression_decode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer, COMPRESSION_LZFSE_SMALL)
 #define lzfse_encode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer) compression_encode_buffer(dst_buffer, dst_size, src_buffer, src_size, scratch_buffer, COMPRESSION_LZFSE_SMALL)
 #else
+#include <stdio.h>
 #include "lzfse.h"
 #endif
 #include "vfs.h"
@@ -91,7 +92,7 @@ lzfse_fsync(FHANDLE fd)
         return -1;
     }
 
-#ifndef lzfse_encode_buffer
+#ifndef USE_LIBCOMPRESSION
     // XXX we're using the public library, which doesn't support COMPRESSION_LZFSE_SMALL
     fprintf(stderr, "[w] lzfse encoding\n");
 #endif

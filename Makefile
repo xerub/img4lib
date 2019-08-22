@@ -5,28 +5,37 @@
 # Darwin can use CommonCrypto instead of OpenSSL
 #COMMONCRYPTO = 1
 
+CC = gcc
 CFLAGS = -Wall -W -pedantic
 CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unused-parameter
-CFLAGS += -O2 -I. -g -DiOS10 -Ilzfse/src
+CFLAGS += -O2 -I. -g -DiOS10
 CFLAGS += -DDER_MULTIBYTE_TAGS=1 -DDER_TAG_SIZE=8
 CFLAGS += -D__unused="__attribute__((unused))"
 
 LD = gcc
-LDFLAGS = -g -Llzfse/build/bin
-ifneq (,$(wildcard /usr/lib/libcompression.dylib))
-LDLIBS = -lcompression
-else
+LDFLAGS = -g
 LDLIBS = -llzfse
+
+AR = ar
+ARFLAGS = crus
+
+ifneq (,$(wildcard lzfse/build/bin/liblzfse.a))
+# liblzfse.a exists in-tree
+CFLAGS += -Ilzfse/src
+LDFLAGS += -Llzfse/build/bin
+else
+ifneq (,$(wildcard /usr/lib/libcompression.dylib))
+# Darwin libcompression is available
+CFLAGS += -DUSE_LIBCOMPRESSION
+LDLIBS = -lcompression
+endif
 endif
 
-LIBTOOL = libtool
-LIBTOOL_FLAGS = -static
-
 SOURCES = \
-	lzss.c \
 	img4.c
 
-LIBSOURCES = lzss.c
+LIBSOURCES = \
+	lzss.c
 
 VFSSOURCES = \
 	libvfs/vfs_file.c \
@@ -100,7 +109,6 @@ CCSOURCES = \
 	corecrypto/cczp_power_fast.c \
 	corecrypto/cczp_sqr.c
 
-OBJECTS = $(SOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
 LIBOBJECTS = $(LIBSOURCES:.c=.o) $(DERSOURCES:.c=.o) $(VFSSOURCES:.c=.o)
 CCOBJECTS = $(addsuffix .o,$(basename $(CCSOURCES)))
 
@@ -108,28 +116,19 @@ ifdef CORECRYPTO
 CC = clang
 CFLAGS += -Wno-gnu -DUSE_CORECRYPTO #-DIBOOT=1
 #CFLAGS += -DNO_CCZP_OPTIONS	# either way
-OBJECTS += $(CCOBJECTS)
 LIBOBJECTS += $(CCOBJECTS)
 else
 ifdef COMMONCRYPTO
 CC = clang
-CFLAGS += -DUSE_COMMONCRYPTO=1
+CFLAGS += -DUSE_COMMONCRYPTO
 LDLIBS += -framework Security -framework CoreFoundation
 else
-CC = gcc
 CFLAGS += -Wno-deprecated-declarations
 LDLIBS += -lcrypto
 endif
 endif
 
-ifdef OVERRIDE_LD
-LD = $(OVERRIDE_LD)
-endif
-ifdef OVERRIDE_CC
-CC = $(OVERRIDE_CC)
-endif
-
-export CC
+OBJECTS = $(SOURCES:.c=.o) $(LIBOBJECTS)
 
 .c.o:
 	$(CC) -o $@ $(CFLAGS) -c $<
@@ -138,18 +137,14 @@ export CC
 
 all: img4
 
-img4: $(OBJECTS) lzfse/build/bin/liblzfse.a
+img4: $(OBJECTS) libimg4.a
 	$(LD) -o $@ $(LDFLAGS) $^ $(LDLIBS)
 
-lzfse/build/bin/liblzfse.a:
-	$(MAKE) -C lzfse clean build/bin/liblzfse.a
-
 libimg4.a: $(LIBOBJECTS)
-	$(LIBTOOL) $(LIBTOOL_FLAGS) -o $@ $^
+	$(AR) $(ARFLAGS) $@ $^
 
 clean:
-	-$(RM) $(OBJECTS) $(LIBOBJECTS) $(CCOBJECTS)
-	$(MAKE) -C lzfse clean
+	-$(RM) $(OBJECTS) $(CCOBJECTS)
 
 distclean: clean
 	-$(RM) img4 libimg4.a

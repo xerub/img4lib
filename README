@@ -1,8 +1,12 @@
 Some WIP code to deal with img4 files in a decent manner.
 
-Build:
+Prereq: either libcompression or liblzfse; or build one in-tree (has precedence)
+    git submodule init && git submodule update && make -C lzfse [CC="cross-cc"] [LD="cross-ld"]
 
-git submodule init && git submodule update && make
+Build:
+    make [CC="cross-cc"] [LD="cross-ld"] [CORECRYPTO=1] [COMMONCRYPTO=1]
+        COMMONCRYPTO=1	use Apple CommonCrypto instead of OpenSSL (Darwin-only)
+        CORECRYPTO=1	use the included corecrypto sources (has precedence)
 
 Examples:
 
