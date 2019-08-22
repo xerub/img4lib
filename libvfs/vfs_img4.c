@@ -348,11 +348,16 @@ verify_signature_rsa(const DERItem *pkey, const DERItem *digest, const DERItem *
     rsa = RSA_new();
     assert(rsa);
 
+#ifdef OPENSSL_API_1_1_0
+    rv = RSA_set0_key(rsa, BN_bin2bn(pkeyComponents[0].data, pkeyComponents[0].length, NULL), BN_bin2bn(pkeyComponents[1].data, pkeyComponents[1].length, NULL), NULL);
+    assert(rv == 1);
+#else
     rsa->n = BN_bin2bn(pkeyComponents[0].data, pkeyComponents[0].length, NULL);
     assert(rsa->n);
 
     rsa->e = BN_bin2bn(pkeyComponents[1].data, pkeyComponents[1].length, NULL);
     assert(rsa->e);
+#endif
 
     rv = RSA_verify(NID_sha1, digest->data, digest->length, sig->data, sig->length, rsa);
     printf("+rv = %d\n", rv);
