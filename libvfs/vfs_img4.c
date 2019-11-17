@@ -348,7 +348,7 @@ verify_signature_rsa(const DERItem *pkey, const DERItem *digest, const DERItem *
     rsa = RSA_new();
     assert(rsa);
 
-#ifdef OPENSSL_API_1_1_0
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
     rv = RSA_set0_key(rsa, BN_bin2bn(pkeyComponents[0].data, pkeyComponents[0].length, NULL), BN_bin2bn(pkeyComponents[1].data, pkeyComponents[1].length, NULL), NULL);
     assert(rv == 1);
 #else
