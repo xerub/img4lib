@@ -134,6 +134,13 @@ typedef struct {
     ContextU *unknown;
 } CTX;
 
+typedef struct {
+    unsigned int tag;
+    void *value;
+    size_t *size;
+    bool *success;
+} Image4GetPopertyContext;
+
 const DERItemSpec DERImg4ItemSpecs[4] = {
     { 0 * sizeof(DERItem), ASN1_IA5_STRING,                             0 },                    // "IMG4"
     { 1 * sizeof(DERItem), ASN1_CONSTR_SEQUENCE,                        DER_ENC_WRITE_DER|DER_DEC_SAVE_DER },     // SEQUENCE(payload)
@@ -1276,6 +1283,62 @@ Img4DecodeEvaluateTrust(int type, TheImg4 *img4, int (*property_cb)(DERTag, DERI
 }
 
 int
+Img4DecodeIterateDictProperties(int type, TheImg4 *img4, int (*property_cb)(DERTag, DERItem *, DictType, void *), void *ctx)
+{
+    int rv;
+    DERDecodedInfo var_88;
+    DERMonster var_70[2];
+
+    if (img4 == NULL || property_cb == NULL) {
+        return DR_ParamErr;
+    }
+    if (img4->manifestRaw.data == NULL) {
+        return DR_ParamErr;
+    }
+
+    rv = DERDecodeItem(&img4->manifest.theset, &var_88);
+    if (rv) {
+        return rv;
+    }
+
+    if (var_88.tag != ASN1_CONSTR_SET) {
+        return -1;
+    }
+
+    rv = DERImg4DecodeFindProperty(&var_88.content, E000000000000000 | 'MANB', ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+
+    img4->manb = var_70[1].item;
+
+    rv = DERImg4DecodeFindProperty(&img4->manb, E000000000000000 | 'MANP', ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+
+    img4->manp = var_70[1].item;
+
+    rv = DERImg4DecodeFindProperty(&img4->manb, E000000000000000 | (unsigned int)type, ASN1_CONSTR_SET, var_70);
+    if (rv) {
+        return rv;
+    }
+    img4->objp = var_70[1].item;
+
+    rv = Img4DecodeEvaluateDictionaryProperties(&img4->manp, DictMANP, property_cb, ctx);
+    if (rv) {
+        return rv;
+    }
+
+    rv = Img4DecodeEvaluateDictionaryProperties(&img4->objp, DictOBJP, property_cb, ctx);
+    if (rv) {
+        return rv;
+    }
+
+    return 0;
+}
+
+int
 checkBoolean(DERTag tag, const DERItem *der, bool value)
 {
     int rv;
@@ -1466,6 +1529,55 @@ objp_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx
         return !!memcmp(digest, var_18, var_1C);
     }
     return 0;
+}
+
+int
+image4_get_property_value_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
+{
+    int rv;
+    Image4GetPopertyContext *ctx2 = (Image4GetPopertyContext *)ctx;
+    DERByte **data_out = (DERByte **)(ctx2->value);
+    DERSize *data_size = (DERSize *)(ctx2->size);
+
+    switch (what) {
+        case DictMANP:
+        case DictOBJP:
+            if ((unsigned int)tag != ctx2->tag)
+                return 0;
+            break;
+        default:
+            break;
+    }
+
+    switch ((unsigned int)tag) {
+        case 'AMNM':
+        case 'CPRO':
+        case 'CSEC':
+        case 'DPRO':
+        case 'EKEY':
+        case 'EPRO':
+        case 'ESEC':
+            rv = Img4DecodeGetPropertyBoolean(b, tag, ctx2->value);
+            *(ctx2->size) = sizeof(bool);
+            break;
+        case 'BORD':
+        case 'CEPO':
+        case 'CHIP':
+        case 'ECID':
+        case 'SDOM':
+            rv = Img4DecodeGetPropertyInteger64(b, tag, ctx2->value);
+            *(ctx2->size) = sizeof(uint64_t);
+            break;
+        case 'BNCH':
+        case 'DGST':
+            rv = Img4DecodeGetPropertyData(b, tag, data_out, data_size);
+            if (rv)
+                free((void *)*data_out);
+            break;
+    }
+
+    *(ctx2->success) = rv == 0;
+    return 1;
 }
 
 static int
@@ -1960,6 +2072,54 @@ dovalidate(struct file_ops_img4 *fd, const char *args)
 }
 
 static int
+img4_do_get_dictionary_property(struct file_ops_img4 *fd, const char *property, void *value, size_t *size)
+{
+    int rv;
+    DERItem out;
+    TheImg4 *img4;
+    FHANDLE pfd = fd->pfd;
+    bool has_manifest = false, success = false;
+    Image4GetPopertyContext ctx;
+
+    rv = pfd->fsync(pfd);
+    if (rv) {
+        return -1;
+    }
+
+    rv = reassemble(fd, &out);
+    if (rv) {
+        return rv;
+    }
+
+    img4 = parse(out.data, out.length);
+    if (!img4) {
+        free(out.data);
+        return -1;
+    }
+
+    ctx.tag = GET_DWORD_BE(property, 0);
+    ctx.value = value;
+    ctx.size = size;
+    ctx.success = &success;
+
+    rv = Img4DecodeManifestExists(img4, &has_manifest);
+    if (rv == 0) {
+        Img4DecodeIterateDictProperties(fd->type, img4, image4_get_property_value_callback, &ctx);
+    }
+
+#if !defined(USE_CORECRYPTO) && !defined(USE_COMMONCRYPTO)
+    EVP_cleanup();
+    ERR_remove_state(0);
+    CRYPTO_cleanup_all_ex_data();
+#endif
+
+    free(img4);
+    free(out.data);
+
+    return (success) ? 0 : 1;
+}
+
+static int
 img4_fsync(FHANDLE fd_)
 {
     struct file_ops_img4 *fd = (struct file_ops_img4 *)fd_;
@@ -2261,6 +2421,13 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
                     ctx->dirty = 1;
                 }
             }
+            break;
+        }
+        case IOCTL_IMG4_GET_PROPERTY: {
+            char *tag = va_arg(ap, char *);
+            void *dst = va_arg(ap, void *);
+            size_t *sz = va_arg(ap, size_t *);
+            rv = img4_do_get_dictionary_property(ctx, tag, dst, sz);
             break;
         }
         default: {

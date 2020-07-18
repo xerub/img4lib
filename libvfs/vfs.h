@@ -38,6 +38,9 @@ struct file_ops {
 #define IOCTL_IMG4_SET_VERSION  71	/* (void *, size_t) */
 #define IOCTL_IMG4_EVAL_TRUST   90	/* (void *) */
 
+// Custom additions
+#define IOCTL_IMG4_GET_PROPERTY 1000	/* (char *, void *, size_t) */
+
 #define FLAG_IMG4_SKIP_DECOMPRESSION    (1 << 0)
 #define FLAG_IMG4_VERIFY_HASH           (1 << 1)
 
