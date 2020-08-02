@@ -41,6 +41,7 @@ struct file_ops {
 
 #define FLAG_IMG4_SKIP_DECOMPRESSION    (1 << 0)
 #define FLAG_IMG4_VERIFY_HASH           (1 << 1)
+#define FLAG_IMG4_UPDATE_HASH           (1 << 2)
 
 typedef void (*free_t)(void *ptr);
 typedef void *(*realloc_t)(void *ptr, size_t size);

@@ -383,6 +383,7 @@ usage(const char *argv0)
     printf("    -R <file>       replace payload\n");
     printf("    -G <file>       set keybag from file (internal use only)\n");
     printf("    -B <bag> <bag>  create keybag (internal use only)\n");
+    printf("    -F              update payload hash in manifest\n");
     printf("    -D              leave IMG4 decrypted\n");
     printf("    -J              convert lzfse to lzss\n");
     printf("    -U              convert lzfse to plain\n");
@@ -466,6 +467,9 @@ main(int argc, char **argv)
             case 'f':
                 img4flags |= FLAG_IMG4_VERIFY_HASH;
                 continue;
+            case 'F':
+                img4flags |= FLAG_IMG4_UPDATE_HASH;
+                continue;
             case 'i':
                 if (argc >= 2) { iname = *++argv; argc--; continue; }
             case 'o':
@@ -518,7 +522,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer;
+    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer || (img4flags & FLAG_IMG4_UPDATE_HASH);
 
     k = (unsigned char *)ik;
     if (ik) {

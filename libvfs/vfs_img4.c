@@ -1438,11 +1438,12 @@ image4_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *c
 }
 
 static int
-objp_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
+objp_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
 {
     int rv;
     if (what == DictOBJP && (unsigned int)tag == 'DGST') {
-        const TheImg4 *img4 = (TheImg4 *)ctx;
+        const DERMonster *tmp = (DERMonster *)ctx;
+        const DERItem *payloadRaw = &tmp->item;
         unsigned char digest[64];
 
         DERSize var_1C;
@@ -1453,15 +1454,19 @@ objp_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx
         }
 
         if (var_1C == 20) {
-            sha1_digest(img4->payloadRaw.data, img4->payloadRaw.length, digest);
+            sha1_digest(payloadRaw->data, payloadRaw->length, digest);
         } else {
 #ifdef USE_CORECRYPTO
-            ccdigest(&ccsha384_ltc_di, img4->payloadRaw.length, img4->payloadRaw.data, digest);
+            ccdigest(&ccsha384_ltc_di, payloadRaw->length, payloadRaw->data, digest);
 #elif defined(USE_COMMONCRYPTO)
-            CC_SHA384(img4->payloadRaw.data, img4->payloadRaw.length, digest);
+            CC_SHA384(payloadRaw->data, payloadRaw->length, digest);
 #else
-            SHA384(img4->payloadRaw.data, img4->payloadRaw.length, digest);
+            SHA384(payloadRaw->data, payloadRaw->length, digest);
 #endif
+        }
+        if (tmp->tag) {
+            memmove(var_18, digest, var_1C);
+            return 0;
         }
         return !!memcmp(digest, var_18, var_1C);
     }
@@ -1469,12 +1474,13 @@ objp_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx
 }
 
 static int
-fast_check_hash(const TheImg4 *img4, unsigned int type)
+find_hash(const TheImg4 *img4, unsigned int type, int update)
 {
     int rv;
     DERDecodedInfo var_88;
     DERMonster var_70[2];
     DERItem manb, manp, objp;
+    DERMonster tmp;
 
     if (img4->manifestRaw.data == NULL) {
         return DR_ParamErr;
@@ -1506,7 +1512,9 @@ fast_check_hash(const TheImg4 *img4, unsigned int type)
     }
     objp = var_70[1].item;
 
-    return Img4DecodeEvaluateDictionaryProperties(&objp, DictOBJP, objp_validate_property_callback, (void *)img4);
+    tmp.item = img4->payloadRaw;
+    tmp.tag = update; // XXX abuse
+    return Img4DecodeEvaluateDictionaryProperties(&objp, DictOBJP, objp_property_callback, (void *)&tmp);
 }
 
 #include <errno.h>
@@ -1531,6 +1539,7 @@ struct file_ops_img4 {
     unsigned type;
     int hasnonce;
     int wasimg4;
+    int uphash;
     int lzfse;
     int dirty;
 };
@@ -1990,6 +1999,20 @@ img4_fsync(FHANDLE fd_)
         return rv;
     }
 
+    if (fd->uphash && fd->manifest.data) {
+        TheImg4 *img4 = parse(out.data, out.length);
+        if (!img4) {
+            free(out.data);
+            return -1;
+        }
+        rv = find_hash(img4, fd->type, 1);
+        free(img4);
+        if (rv) {
+            free(out.data);
+            return -1;
+        }
+    }
+
     other->lseek(other, 0, SEEK_SET);
     size = other->write(other, out.data, out.length);
     free(out.data);
@@ -2317,6 +2340,9 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     if (other->flags == O_WRONLY) {
         goto closeit;
     }
+    if (other->flags == O_RDONLY && (flags & FLAG_IMG4_UPDATE_HASH)) {
+        goto closeit;
+    }
 
     total = other->length(other);
     if ((ssize_t)total < 0) {
@@ -2362,7 +2388,7 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     }
 
     if (flags & FLAG_IMG4_VERIFY_HASH) {
-        rv = fast_check_hash(img4, type);
+        rv = find_hash(img4, type, 0);
         if (rv) {
             printf("[e] image fast check failed: %d\n", rv);
             goto freeimg;
@@ -2419,6 +2445,7 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     ctx->usize = usize;
     ctx->other = other;
     ctx->wasimg4 = (img4->payloadRaw.data != NULL);
+    ctx->uphash = (flags & FLAG_IMG4_UPDATE_HASH);
 
     rv = Img4DecodeManifestExists(img4, &exists);
     if (rv == 0 && exists) {
