@@ -169,6 +169,12 @@ lzfse_ioctl(FHANDLE fd, unsigned long req, ...)
             rv = 0;
             break;
         }
+        case IOCTL_LZFSE_GET_LENGTH: {
+            uint64_t *usize = va_arg(ap, uint64_t *);
+            *usize = MEMFD(fd)->size;
+            rv = 0;
+            break;
+        }
         default: {
             void *a = va_arg(ap, void *);
             void *b = va_arg(ap, void *);

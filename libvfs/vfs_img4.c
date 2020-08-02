@@ -1527,6 +1527,7 @@ struct file_ops_img4 {
     DERItem keybag;
     DERItem version;
     uint64_t nonce;
+    uint64_t usize;
     unsigned type;
     int hasnonce;
     int wasimg4;
@@ -1802,7 +1803,9 @@ reassemble(struct file_ops_img4 *fd, DERItem *out)
         return rv;
     }
     if (fd->lzfse) {
-        rv = makeCompression(&compr, fd->lzfse, pfd->length(pfd));
+        uint64_t usize = fd->usize;
+        pfd->ioctl(pfd, IOCTL_LZFSE_GET_LENGTH, &usize);
+        rv = makeCompression(&compr, fd->lzfse, usize);
         if (rv) {
             return rv;
         }
@@ -2304,6 +2307,7 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     unsigned char *dup;
     unsigned type;
     uint32_t deco = 0;
+    uint64_t usize = 0;
     DERByte *der;
     DERSize derlen;
 
@@ -2389,7 +2393,6 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
 #ifdef iOS10
     if (img4->payload.compression.data && img4->payload.compression.length) {
         DERItem tmp[2];
-        uint64_t usize = 0;
         if (DERParseSequenceContent(&img4->payload.compression, 2, DERRSAPubKeyPKCS1ItemSpecs, tmp, 0) ||
             DERParseInteger(&tmp[0], &deco) || DERParseInteger64(&tmp[1], &usize)) {
             fprintf(stderr, "[W] cannot get decompression info\n");
@@ -2413,6 +2416,7 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     ctx->pfd = pfd;
     ctx->type = type;
     ctx->lzfse = deco;
+    ctx->usize = usize;
     ctx->other = other;
     ctx->wasimg4 = (img4->payloadRaw.data != NULL);
 
