@@ -1898,18 +1898,14 @@ validate(TheImg4 *img4, unsigned type, const char *args)
     ctx.hardware->SEPO = 1;
     parseargs(ctx.hardware, args);
 
-#if 0
-    ctx.hardware->field_2A = 0;
-    ctx.hardware->field_2C = 0;
-    ctx.hardware->field_30 = 0;
-#elif 0
-    ctx.hardware->field_2A = 0; /* use field_30 */
-    ctx.hardware->field_2C = 1;
-    ctx.hardware->field_30 = 0x8091a2b3c4d5e6f7;
-#elif 1
     ctx.hardware->field_2A = 1; /* use Img4DecodeGetRestoreInfoData() */
     ctx.hardware->field_2C = 1;
-#endif
+    if (img4->restoreInfo.nonce.data == NULL) {
+        ctx.hardware->field_2A = 0; /* use field_30 */
+        if (!ctx.hardware->field_30) {
+            ctx.hardware->field_2C = 0; /* field_30 was not set, skip */
+        }
+    }
 
     ctx.unknown = malloc(sizeof(ContextU));
     assert(ctx.unknown);
