@@ -1438,7 +1438,7 @@ image4_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *c
 }
 
 static int
-objp_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
+hash_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
 {
     int rv;
     if (what == DictOBJP && (unsigned int)tag == 'DGST') {
@@ -1474,19 +1474,14 @@ objp_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
 }
 
 static int
-find_hash(const TheImg4 *img4, unsigned int type, int update)
+walkman(const TheImg4Manifest *m, unsigned int type, int (*cb)(DERTag tag, DERItem *b, DictType what, void *ctx), DERMonster *ctx)
 {
     int rv;
     DERDecodedInfo var_88;
     DERMonster var_70[2];
     DERItem manb, manp, objp;
-    DERMonster tmp;
 
-    if (img4->manifestRaw.data == NULL) {
-        return DR_ParamErr;
-    }
-
-    rv = DERDecodeItem(&img4->manifest.theset, &var_88);
+    rv = DERDecodeItem(&m->theset, &var_88);
     if (rv) {
         return rv;
     }
@@ -1512,9 +1507,11 @@ find_hash(const TheImg4 *img4, unsigned int type, int update)
     }
     objp = var_70[1].item;
 
-    tmp.item = img4->payloadRaw;
-    tmp.tag = update; // XXX abuse
-    return Img4DecodeEvaluateDictionaryProperties(&objp, DictOBJP, objp_property_callback, (void *)&tmp);
+    rv = Img4DecodeEvaluateDictionaryProperties(&manp, DictMANP, cb, ctx);
+    if (rv) {
+        return rv;
+    }
+    return Img4DecodeEvaluateDictionaryProperties(&objp, DictOBJP, cb, ctx);
 }
 
 #include <errno.h>
@@ -2000,12 +1997,15 @@ img4_fsync(FHANDLE fd_)
     }
 
     if (fd->uphash && fd->manifest.data) {
+        DERMonster tmp;
         TheImg4 *img4 = parse(out.data, out.length);
         if (!img4) {
             free(out.data);
             return -1;
         }
-        rv = find_hash(img4, fd->type, 1);
+        tmp.item = img4->payloadRaw;
+        tmp.tag = 1; // XXX abuse: tell hash_property_callback to write
+        rv = walkman(&img4->manifest, fd->type, hash_property_callback, &tmp);
         free(img4);
         if (rv) {
             free(out.data);
@@ -2387,8 +2387,11 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
         goto freeimg;
     }
 
-    if (flags & FLAG_IMG4_VERIFY_HASH) {
-        rv = find_hash(img4, type, 0);
+    if ((flags & FLAG_IMG4_VERIFY_HASH) && img4->manifestRaw.data) {
+        DERMonster tmp;
+        tmp.item = img4->payloadRaw;
+        tmp.tag = 0; // XXX abuse: tell hash_property_callback to read
+        rv = walkman(&img4->manifest, type, hash_property_callback, &tmp);
         if (rv) {
             printf("[e] image fast check failed: %d\n", rv);
             goto freeimg;
