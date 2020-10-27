@@ -1438,6 +1438,74 @@ image4_validate_property_callback(DERTag tag, DERItem *b, DictType what, void *c
 }
 
 static int
+query_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
+{
+    int rv;
+    DERMonster *tmp = (DERMonster *)ctx;
+    if ((unsigned int)tag != tmp->tag) {
+        return 0;
+    }
+    // thx @DanyL
+    switch ((unsigned int)tag) {
+        case 'AMNM':
+        case 'CPRO':
+        case 'CSEC':
+        case 'DPRO':
+        case 'EKEY':
+        case 'EPRO':
+        case 'ESEC': {
+            bool value;
+            rv = Img4DecodeGetPropertyBoolean(b, tag, &value);
+            if (rv) {
+                return rv;
+            }
+            if (tmp->item.length < sizeof(bool)) {
+                return -1;
+            }
+            tmp->item.length = sizeof(bool);
+            *(bool *)tmp->item.data = value;
+            tmp->tag = 0;
+            break;
+        }
+        case 'BORD':
+        case 'CEPO':
+        case 'CHIP':
+        case 'ECID':
+        case 'SDOM': {
+            uint64_t value;
+            rv = Img4DecodeGetPropertyInteger64(b, tag, &value);
+            if (rv) {
+                return rv;
+            }
+            if (tmp->item.length < sizeof(uint64_t)) {
+                return -1;
+            }
+            tmp->item.length = sizeof(uint64_t);
+            *(uint64_t *)tmp->item.data = value;
+            tmp->tag = 0;
+            break;
+        }
+        case 'BNCH':
+        case 'DGST': {
+            DERByte *data;
+            DERSize length;
+            rv = Img4DecodeGetPropertyData(b, tag, &data, &length);
+            if (rv) {
+                return rv;
+            }
+            if (tmp->item.length < length) {
+                return -1;
+            }
+            tmp->item.length = length;
+            memmove(tmp->item.data, data, length);
+            tmp->tag = 0;
+            break;
+        }
+    }
+    return 0;
+}
+
+static int
 hash_property_callback(DERTag tag, DERItem *b, DictType what, void *ctx)
 {
     int rv;
@@ -2261,6 +2329,38 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             }
             free(old);
             ctx->dirty = 1;
+            break;
+        }
+        case IOCTL_IMG4_QUERY_PROP: {
+            const char *prop = va_arg(ap, char *);
+            unsigned char *out = va_arg(ap, unsigned char *);
+            unsigned int *len = va_arg(ap, unsigned int *);
+            unsigned int fourcc;
+            TheImg4Manifest m;
+            DERMonster tmp;
+            for (fourcc = 0; *prop; prop++) {
+                fourcc = (fourcc << 8) | *prop;
+            }
+            if (!fourcc) {
+                rv = -1;
+                break;
+            }
+            rv = DERImg4DecodeManifest(&ctx->manifest, &m);
+            if (rv) {
+                break;
+            }
+            tmp.item.data = out;
+            tmp.item.length = *len;
+            tmp.tag = fourcc;
+            rv = walkman(&m, ctx->type, query_property_callback, &tmp);
+            if (rv) {
+                break;
+            }
+            if (tmp.tag) {
+                rv = -1;
+                break;
+            }
+            *len = tmp.item.length;
             break;
         }
         case IOCTL_ENC_SET_NOENC: if (fd->flags == O_RDONLY) break; else {

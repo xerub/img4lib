@@ -369,6 +369,7 @@ usage(const char *argv0)
     printf("    -g <file>       write keybag to <file>\n");
     printf("    -m <file>       write ticket to <file>\n");
     printf("    -c <info>       check signature with <info>\n");
+    printf("    -q <prop>       query property\n");
     printf("    -f              check hash against manifest\n");
     printf("    -n              print nonce\n");
     printf("    -b              print kbags\n");
@@ -404,6 +405,7 @@ main(int argc, char **argv)
     const char *ename = NULL;
     const char *gname = NULL;
     const char *mname = NULL;
+    const char *query = NULL;
     char *cinfo = NULL;
     int get_nonce = 0;
     int get_kbags = 0;
@@ -484,6 +486,8 @@ main(int argc, char **argv)
                 if (argc >= 2) { mname = *++argv; argc--; continue; }
             case 'c':
                 if (argc >= 2) { cinfo = *++argv; argc--; continue; }
+            case 'q':
+                if (argc >= 2) { query = *++argv; argc--; continue; }
             case 'T':
                 if (argc >= 2) { set_type = *++argv; argc--; continue; }
             case 'P':
@@ -569,7 +573,7 @@ main(int argc, char **argv)
         fd->close(fd);
         return -1;
     }
-    if (!get_nonce && !get_kbags && !get_version) {
+    if (!get_nonce && !get_kbags && !get_version && !query) {
         printf("%c%c%c%c\n", FOURCC(type));
     }
 
@@ -606,6 +610,20 @@ main(int argc, char **argv)
         rv = fd->ioctl(fd, IOCTL_IMG4_EVAL_TRUST, cinfo);
         if (rv) {
             fprintf(stderr, "[e] signature failed\n");
+        }
+        rc |= rv;
+    }
+    if (query) {
+        unsigned char result[256];
+        unsigned int i, len = sizeof(result);
+        rv = fd->ioctl(fd, IOCTL_IMG4_QUERY_PROP, query, result, &len);
+        if (rv) {
+            fprintf(stderr, "[e] query failed\n");
+        } else {
+            for (i = 0; i < len; i++) {
+                printf("%02x", result[i]);
+            }
+            printf("\n");
         }
         rc |= rv;
     }
