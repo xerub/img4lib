@@ -654,10 +654,9 @@ main(int argc, char **argv)
     }
     if (get_version) {
         char *version;
-        size_t length;
-        rv = fd->ioctl(fd, IOCTL_IMG4_GET_VERSION, &version, &length);
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_VERSION, &version, &sz);
         if (rv == 0) {
-            printf("%.*s\n", (int)length, version);
+            printf("%.*s\n", (int)sz, version);
         }
     }
 
