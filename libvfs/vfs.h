@@ -63,7 +63,7 @@ FHANDLE memory_open_from_file(const char *filename, int flags);
 FHANDLE enc_reopen(FHANDLE other, const unsigned char iv[16], const unsigned char key[32]);
 FHANDLE lzss_reopen(FHANDLE other);
 FHANDLE lzfse_reopen(FHANDLE other, size_t usize);		/* pass usize=0 to decompress as much as possible */
-FHANDLE sub_reopen(FHANDLE other, off_t offset, size_t length);	/* pass length<0 to slice to the end of file */
+FHANDLE sub_reopen(FHANDLE other, size_t offset, off_t length);	/* pass length<0 to slice to the end of file */
 FHANDLE img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags);
 
 #endif

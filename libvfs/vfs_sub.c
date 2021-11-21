@@ -118,16 +118,37 @@ sub_lseek(FHANDLE fd, off_t offset, int whence)
     }
 
     where = other->lseek(other, offset, SEEK_SET);
+    if (where != offset) {
+        return -1;
+    }
     return ctx->reloff = where - ctx->start;
 }
 
 static int
 sub_ftruncate(FHANDLE fd, off_t length)
 {
+    FHANDLE other;
+    size_t start, total;
     struct file_ops_sub *ctx = (struct file_ops_sub *)fd;
-    if (ctx->length - length) {
+    if (!fd) {
         return -1;
     }
+    other = ctx->other;
+    start = ctx->start;
+    total = other->length(other);
+    if ((ssize_t)total < 0 || start > total) {
+        return -1;
+    }
+    if (length < 0) {
+        length = total - start;
+    }
+    if (start + length > total) {
+        return -1;
+    }
+    if (ctx->reloff > length) {
+        ctx->reloff = length;
+    }
+    ctx->length = length;
     return 0;
 }
 
@@ -165,43 +186,31 @@ sub_ioctl(FHANDLE fd, unsigned long req, ...)
 }
 
 FHANDLE
-sub_reopen(FHANDLE other, off_t offset, size_t length)
+sub_reopen(FHANDLE other, size_t offset, off_t length)
 {
     struct file_ops_sub *ops;
-    size_t total;
-    off_t off;
+    FHANDLE fd;
 
     if (!other) {
         return NULL;
-    }
-
-    if (offset < 0) {
-        goto closeit;
-    }
-    total = other->length(other);
-    if ((ssize_t)total < 0) {
-        goto closeit;
-    }
-    if ((ssize_t)length < 0) {
-        length = total - offset;
-    }
-    if (length + offset > total) {
-        goto closeit;
-    }
-    off = other->lseek(other, offset, SEEK_SET);
-    if (off != offset) {
-        goto closeit;
     }
 
     ops = malloc(sizeof(*ops));
     if (!ops) {
         goto closeit;
     }
+    fd = (FHANDLE)ops;
 
     ops->other = other;
     ops->start = offset;
-    ops->length = length;
     ops->reloff = 0;
+
+    if (sub_ftruncate(fd, length)) {
+        goto error;
+    }
+    if (sub_lseek(fd, 0, SEEK_SET)) {
+        goto error;
+    }
 
     ops->ops.read = sub_read;
     ops->ops.write = sub_write;
@@ -212,8 +221,10 @@ sub_reopen(FHANDLE other, off_t offset, size_t length)
     ops->ops.close = sub_close;
     ops->ops.length = sub_length;
     ops->ops.flags = other->flags;
-    return (FHANDLE)ops;
+    return fd;
 
+  error:
+    free(ops);
   closeit:
     other->close(other);
     return NULL;
