@@ -407,6 +407,7 @@ main(int argc, char **argv)
     const char *mname = NULL;
     const char *query = NULL;
     char *cinfo = NULL;
+    int list_only = 0;
     int get_nonce = 0;
     int get_kbags = 0;
     int get_version = 0;
@@ -441,6 +442,10 @@ main(int argc, char **argv)
         if (*arg == '-') switch (arg[1]) {
             case 'h':
                 usage(argv0);
+                continue;
+            case 'l':
+                list_only = 1;
+                img4flags |= FLAG_IMG4_SKIP_DECOMPRESSION;
                 continue;
             case 'n':
                 get_nonce = 1;
@@ -543,7 +548,7 @@ main(int argc, char **argv)
 
     // open
 
-    if (!modify) {
+    if (!modify || list_only) {
         fd = img4_reopen(file_open(iname, O_RDONLY), k, img4flags);
     } else if (set_wrap) {
         if (!oname) {
@@ -573,8 +578,46 @@ main(int argc, char **argv)
         fd->close(fd);
         return -1;
     }
-    if (!get_nonce && !get_kbags && !get_version && !query) {
+    if (!get_nonce && !get_kbags && !get_version && !query && !list_only) {
         printf("%c%c%c%c\n", FOURCC(type));
+    }
+
+    if (list_only) {
+        uint64_t nonce = 0;
+        unsigned char kbag1[48];
+        unsigned char kbag2[48];
+        printf("type -> %c%c%c%c\n", FOURCC(type));
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_VERSION, &buf, &sz);
+        if (rv == 0) {
+            printf("version -> %.*s\n", (int)sz, buf);
+        }
+        rv = fd->ioctl(fd, IOCTL_MEM_GET_BACKING, &buf, &sz); // IOCTL_MEM_GET_DATAPTR for decoded
+        if (rv == 0 && sz) {
+            printf("DATA %zu\n", sz);
+        }
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_KEYBAG2, kbag1, kbag2);
+        if (rv == 0) {
+            unsigned i;
+            printf("kbag1 -> ");
+            for (i = 0; i < sizeof(kbag1); i++) {
+                printf("%02X", kbag1[i]);
+            }
+            printf("\n");
+            printf("kbag2 -> ");
+            for (i = 0; i < sizeof(kbag2); i++) {
+                printf("%02X", kbag2[i]);
+            }
+            printf("\n");
+        }
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_MANIFEST, &buf, &sz);
+        if (rv == 0 && sz) {
+            printf("IM4M.der %zu\n", sz);
+        }
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_NONCE, &nonce);
+        if (rv == 0) {
+            printf("nonce -> 0x%016llx\n", nonce);
+        }
+        return fd->close(fd);
     }
 
     if (wname) {
