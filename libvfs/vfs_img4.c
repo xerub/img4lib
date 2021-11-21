@@ -2458,7 +2458,7 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
         goto freebuf;
     }
 
-    if (flags == O_RDONLY) {
+    if (other->flags == O_RDONLY) {
         DERDecodedInfo seq;
         item.data = buf;
         item.length = total;
