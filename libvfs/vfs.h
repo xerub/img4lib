@@ -37,6 +37,8 @@ struct file_ops {
 #define IOCTL_IMG4_SET_KEYBAG2  69	/* (unsigned char[48], unsigned char[48]) */
 #define IOCTL_IMG4_GET_VERSION  70	/* (void **, size_t *) */
 #define IOCTL_IMG4_SET_VERSION  71	/* (void *, size_t) */
+#define IOCTL_IMG4_GET_EP_INFO  72	/* (void **, size_t *) */
+#define IOCTL_IMG4_SET_EP_INFO  73	/* (void *, size_t) */
 #define IOCTL_IMG4_QUERY_PROP   80	/* (const char *, unsigned char *, unsigned int *) */
 #define IOCTL_IMG4_EVAL_TRUST   90	/* (void *) */
 

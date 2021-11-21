@@ -58,6 +58,7 @@ typedef struct {
     DERItem keybag;
 #ifdef iOS10
     DERItem compression;
+    DERItem ep_info;
 #endif
     DERByte full_digest[RESERVE_DIGEST_SPACE];
 } TheImg4Payload;
@@ -142,13 +143,14 @@ const DERItemSpec DERImg4ItemSpecs[4] = {
 };
 
 #ifdef iOS10
-const DERItemSpec DERImg4PayloadItemSpecs[6] = {
+const DERItemSpec DERImg4PayloadItemSpecs[7] = {
     { 0 * sizeof(DERItem), ASN1_IA5_STRING,                             0 },                    // "IM4P"
     { 1 * sizeof(DERItem), ASN1_IA5_STRING,                             0 },                    // "illb"
     { 2 * sizeof(DERItem), ASN1_IA5_STRING,                             0 },                    // "iBoot-2261.3.33"
     { 3 * sizeof(DERItem), ASN1_OCTET_STRING,                           0 },                    // binary data
     { 4 * sizeof(DERItem), ASN1_OCTET_STRING,                           DER_DEC_OPTIONAL },     // keybag
-    { 5 * sizeof(DERItem), ASN1_CONSTR_SEQUENCE,                        DER_ENC_WRITE_DER|DER_DEC_OPTIONAL }      // iOS10 compression info
+    { 5 * sizeof(DERItem), ASN1_CONSTR_SEQUENCE,                        DER_ENC_WRITE_DER|DER_DEC_OPTIONAL },     // iOS10 compression info
+    { 6 * sizeof(DERItem), ASN1_CONSTRUCTED|ASN1_CONTEXT_SPECIFIC | 0,  DER_ENC_WRITE_DER|DER_DEC_OPTIONAL|DER_DEC_SAVE_DER } // ep_info
 };
 #else
 const DERItemSpec DERImg4PayloadItemSpecs[5] = {
@@ -658,7 +660,7 @@ DERImg4DecodePayload(const DERItem *a1, TheImg4Payload *a2)
     }
 
 #ifdef iOS10
-    rv = DERParseSequence(a1, 6, DERImg4PayloadItemSpecs, a2, 0);
+    rv = DERParseSequence(a1, 7, DERImg4PayloadItemSpecs, a2, 0);
 #else
     rv = DERParseSequence(a1, 5, DERImg4PayloadItemSpecs, a2, 0);
 #endif
@@ -1599,6 +1601,7 @@ struct file_ops_img4 {
     DERItem manifest;
     DERItem keybag;
     DERItem version;
+    DERItem ep_info;
     uint64_t nonce;
     uint64_t usize;
     unsigned type;
@@ -1765,11 +1768,11 @@ makeKeybag(DERItem *where, const DERByte *a, const DERByte *b)
 }
 
 static int
-makePayload(DERItem *where, unsigned type, DERItem *version, DERItem *keybag, DERItem *compr, unsigned char *data, size_t size)
+makePayload(DERItem *where, unsigned type, DERItem *version, DERItem *keybag, DERItem *compr, DERItem *ep_info, unsigned char *data, size_t size)
 {
     char IM4P[] = "IM4P";
     DERByte tmp[4];
-    DERItem elements[6];
+    DERItem elements[7];
     int n = 5;
 
     PUT_DWORD_BE(tmp, 0, type);
@@ -1789,8 +1792,10 @@ makePayload(DERItem *where, unsigned type, DERItem *version, DERItem *keybag, DE
     }
 #ifdef iOS10
     if (compr && compr->data && compr->length) {
-        elements[5] = *compr;
-        n++;
+        elements[n++] = *compr;
+    }
+    if (ep_info && ep_info->data && ep_info->length) {
+        elements[n++] = *ep_info;
     }
 #endif
     return aDEREncodeSequence(where, ASN1_CONSTR_SEQUENCE, elements, n, DERImg4PayloadItemSpecs, -1);
@@ -1884,7 +1889,7 @@ reassemble(struct file_ops_img4 *fd, DERItem *out)
             return rv;
         }
     }
-    rv = makePayload(&items[1], fd->type, &fd->version, &fd->keybag, &compr, data, size);
+    rv = makePayload(&items[1], fd->type, &fd->version, &fd->keybag, &compr, &fd->ep_info, data, size);
     free(compr.data);
     if (rv) {
         return rv;
@@ -2331,6 +2336,27 @@ img4_ioctl(FHANDLE fd, unsigned long req, ...)
             ctx->dirty = 1;
             break;
         }
+        case IOCTL_IMG4_GET_EP_INFO: {
+            void **dst = va_arg(ap, void **);
+            size_t *sz = va_arg(ap, size_t *);
+            *dst = ctx->ep_info.data;
+            *sz = ctx->ep_info.length;
+            rv = 0;
+            break;
+        }
+        case IOCTL_IMG4_SET_EP_INFO: if (fd->flags == O_RDONLY) break; else {
+            DERItem item;
+            void *old = ctx->ep_info.data;
+            item.data = va_arg(ap, void *);
+            item.length = va_arg(ap, size_t);
+            rv = derdup(&ctx->ep_info, &item);
+            if (rv) {
+                break;
+            }
+            free(old);
+            ctx->dirty = 1;
+            break;
+        }
         case IOCTL_IMG4_QUERY_PROP: {
             const char *prop = va_arg(ap, char *);
             unsigned char *out = va_arg(ap, unsigned char *);
@@ -2565,6 +2591,10 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     if (rv) {
         goto err2;
     }
+    rv = derdup(&ctx->ep_info, &img4->payload.ep_info);
+    if (rv) {
+        goto err3;
+    }
 
     if (img4->restoreInfo.nonce.data && img4->restoreInfo.nonce.length) {
         rv = Img4DecodeGetRestoreInfoData(img4, 'BNCN', &der, &derlen);
@@ -2588,6 +2618,8 @@ img4_reopen(FHANDLE other, const unsigned char *ivkey, int flags)
     ops->ops.flags = other->flags;
     return (FHANDLE)ops;
 
+  err3:
+    free(ctx->version.data);
   err2:
     free(ctx->keybag.data);
   err1:

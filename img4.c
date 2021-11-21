@@ -368,6 +368,7 @@ usage(const char *argv0)
     printf("    -w <file>       write watchtower to <file>\n");
     printf("    -g <file>       write keybag to <file>\n");
     printf("    -m <file>       write ticket to <file>\n");
+    printf("    -e <file>       write epinfo to <file>\n");
     printf("    -c <info>       check signature with <info>\n");
     printf("    -q <prop>       query property\n");
     printf("    -f              check hash against manifest\n");
@@ -379,6 +380,7 @@ usage(const char *argv0)
     printf("    -P[f|u] <file>  apply patch from <file> (f=force, u=undo)\n");
     printf("    -W <file>       set watchtower from <file>\n");
     printf("    -M <file>       set ticket from <file>\n");
+    printf("    -E <file>       set epinfo from <file>\n");
     printf("    -N <nonce>      set <nonce> if ticket is set/present\n");
     printf("    -V <version>    set <version>\n");
     printf("    -R <file>       replace payload\n");
@@ -405,6 +407,7 @@ main(int argc, char **argv)
     const char *wname = NULL;
     const char *gname = NULL;
     const char *mname = NULL;
+    const char *ename = NULL;
     const char *query = NULL;
     char *cinfo = NULL;
     int list_only = 0;
@@ -419,6 +422,7 @@ main(int argc, char **argv)
     const char *set_manifest = NULL;
     const char *set_version = NULL;
     const char *set_replacer = NULL;
+    const char *set_epinfo = NULL;
     const char *set_kb1 = NULL;
     const char *set_kb2 = NULL;
     int set_nonce = 0;
@@ -491,6 +495,8 @@ main(int argc, char **argv)
                 if (argc >= 2) { mname = *++argv; argc--; continue; }
             case 'c':
                 if (argc >= 2) { cinfo = *++argv; argc--; continue; }
+            case 'e':
+                if (argc >= 2) { ename = *++argv; argc--; continue; }
             case 'q':
                 if (argc >= 2) { query = *++argv; argc--; continue; }
             case 'T':
@@ -501,6 +507,8 @@ main(int argc, char **argv)
                 if (argc >= 2) { set_wtower = *++argv; argc--; continue; }
             case 'M':
                 if (argc >= 2) { set_manifest = *++argv; argc--; continue; }
+            case 'E':
+                if (argc >= 2) { set_epinfo = *++argv; argc--; continue; }
             case 'N':
                 if (argc >= 2) { set_nonce = 1; nonce = strtoull(*++argv, NULL, 16); argc--; continue; }
             case 'V':
@@ -531,7 +539,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_wtower || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer || (img4flags & FLAG_IMG4_UPDATE_HASH);
+    modify = set_type || set_patch || set_wtower || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer || set_epinfo || (img4flags & FLAG_IMG4_UPDATE_HASH);
 
     k = (unsigned char *)ik;
     if (ik) {
@@ -613,6 +621,10 @@ main(int argc, char **argv)
         if (rv == 0 && sz) {
             printf("IM4M.der %zu\n", sz);
         }
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_EP_INFO, &buf, &sz);
+        if (rv == 0 && sz) {
+            printf("INFO.der %zu\n", sz);
+        }
         rv = fd->ioctl(fd, IOCTL_IMG4_GET_NONCE, &nonce);
         if (rv == 0) {
             printf("nonce -> 0x%016llx\n", nonce);
@@ -646,6 +658,17 @@ main(int argc, char **argv)
             fprintf(stderr, "[e] cannot get ticket\n");
         } else {
             rv = write_file(mname, buf, sz);
+        }
+        rc |= rv;
+    }
+    if (ename) {
+        rv = fd->ioctl(fd, IOCTL_IMG4_GET_EP_INFO, &buf, &sz);
+        if (rv) {
+            fprintf(stderr, "[e] cannot get epinfo\n");
+        } else if (!sz) {
+            fprintf(stderr, "[w] image has no epinfo\n");
+        } else {
+            rv = write_file(ename, buf, sz);
         }
         rc |= rv;
     }
@@ -742,6 +765,17 @@ main(int argc, char **argv)
             rv = fd->ioctl(fd, IOCTL_IMG4_SET_MANIFEST, buf, sz);
             if (rv) {
                 fprintf(stderr, "[e] cannot set manifest\n");
+            }
+            free(buf);
+        }
+        rc |= rv;
+    }
+    if (set_epinfo) {
+        rv = read_file(set_epinfo, &buf, &sz);
+        if (rv == 0) {
+            rv = fd->ioctl(fd, IOCTL_IMG4_SET_EP_INFO, buf, sz);
+            if (rv) {
+                fprintf(stderr, "[e] cannot set ep info\n");
             }
             free(buf);
         }
