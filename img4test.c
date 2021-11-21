@@ -100,17 +100,17 @@ main(int argc, char **argv)
         return -1;
     }
 
-    /* get the extra */
-    rv = fd->ioctl(fd, IOCTL_LZSS_GET_EXTRA, &buf, &sz);
+    /* get the watchtower */
+    rv = fd->ioctl(fd, IOCTL_LZSS_GET_WTOWER, &buf, &sz);
     if (rv == 0) {
-        rv = write_file("_extra", buf, sz);
+        rv = write_file("_wtower", buf, sz);
         if (rv) {
-            fprintf(stderr, "cannot create extra file\n");
+            fprintf(stderr, "cannot create watchtower file\n");
             fd->close(fd);
             return -1;
         }
     } else {
-        fprintf(stderr, "no extra\n");
+        fprintf(stderr, "no watchtower\n");
     }
 
     /* get the manifest */

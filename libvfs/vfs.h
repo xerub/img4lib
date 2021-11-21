@@ -19,8 +19,8 @@ struct file_ops {
 #define IOCTL_MEM_GET_BACKING   11	/* (void **, size_t *) // underlying backing store */
 #define IOCTL_MEM_SET_FUNCS     12	/* (realloc_t, free_t) */
 #define IOCTL_ENC_SET_NOENC     30	/* (void) */
-#define IOCTL_LZSS_GET_EXTRA    40	/* (void **, size_t *) */
-#define IOCTL_LZSS_SET_EXTRA    41	/* (void *, size_t) */
+#define IOCTL_LZSS_GET_WTOWER   40	/* (void **, size_t *) */
+#define IOCTL_LZSS_SET_WTOWER   41	/* (void *, size_t) */
 #define IOCTL_LZFSE_SET_LZSS    42	/* (void) */
 #define IOCTL_LZFSE_SET_NOCOMP  43	/* (void) */
 #define IOCTL_LZFSE_GET_LENGTH  44	/* (unsigned long long *) */

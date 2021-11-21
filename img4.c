@@ -365,7 +365,7 @@ usage(const char *argv0)
     printf("    -k <ivkey>      use <ivkey> to decrypt\n");
     printf("    -z              operate on compressed data\n");
     printf("getters:\n");
-    printf("    -e <file>       write extra to <file>\n");
+    printf("    -w <file>       write watchtower to <file>\n");
     printf("    -g <file>       write keybag to <file>\n");
     printf("    -m <file>       write ticket to <file>\n");
     printf("    -c <info>       check signature with <info>\n");
@@ -377,7 +377,7 @@ usage(const char *argv0)
     printf("modifiers:\n");
     printf("    -T <fourcc>     set type <fourcc>\n");
     printf("    -P[f|u] <file>  apply patch from <file> (f=force, u=undo)\n");
-    printf("    -E <file>       set extra from <file>\n");
+    printf("    -W <file>       set watchtower from <file>\n");
     printf("    -M <file>       set ticket from <file>\n");
     printf("    -N <nonce>      set <nonce> if ticket is set/present\n");
     printf("    -V <version>    set <version>\n");
@@ -402,7 +402,7 @@ main(int argc, char **argv)
     const char *iname = NULL;
     const char *oname = NULL;
     const char *ik = NULL;
-    const char *ename = NULL;
+    const char *wname = NULL;
     const char *gname = NULL;
     const char *mname = NULL;
     const char *query = NULL;
@@ -414,7 +414,7 @@ main(int argc, char **argv)
     const char *set_patch = NULL;
     int pf = 0;
     int pu = 0;
-    const char *set_extra = NULL;
+    const char *set_wtower = NULL;
     const char *set_manifest = NULL;
     const char *set_version = NULL;
     const char *set_replacer = NULL;
@@ -478,8 +478,8 @@ main(int argc, char **argv)
                 if (argc >= 2) { oname = *++argv; argc--; continue; }
             case 'k':
                 if (argc >= 2) { ik = *++argv; argc--; continue; }
-            case 'e':
-                if (argc >= 2) { ename = *++argv; argc--; continue; }
+            case 'w':
+                if (argc >= 2) { wname = *++argv; argc--; continue; }
             case 'g':
                 if (argc >= 2) { gname = *++argv; argc--; continue; }
             case 'm':
@@ -492,8 +492,8 @@ main(int argc, char **argv)
                 if (argc >= 2) { set_type = *++argv; argc--; continue; }
             case 'P':
                 if (argc >= 2) { set_patch = *++argv; argc--; pf = (!!strchr(arg, 'f')); pu = (!!strchr(arg, 'u')); continue; }
-            case 'E':
-                if (argc >= 2) { set_extra = *++argv; argc--; continue; }
+            case 'W':
+                if (argc >= 2) { set_wtower = *++argv; argc--; continue; }
             case 'M':
                 if (argc >= 2) { set_manifest = *++argv; argc--; continue; }
             case 'N':
@@ -526,7 +526,7 @@ main(int argc, char **argv)
         return -1;
     }
 
-    modify = set_type || set_patch || set_extra || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer || (img4flags & FLAG_IMG4_UPDATE_HASH);
+    modify = set_type || set_patch || set_wtower || set_manifest || set_nonce || set_decrypt || set_convert || set_version || set_wrap || set_kb1 || set_keybag || set_replacer || (img4flags & FLAG_IMG4_UPDATE_HASH);
 
     k = (unsigned char *)ik;
     if (ik) {
@@ -577,14 +577,14 @@ main(int argc, char **argv)
         printf("%c%c%c%c\n", FOURCC(type));
     }
 
-    if (ename) {
-        rv = fd->ioctl(fd, IOCTL_LZSS_GET_EXTRA, &buf, &sz);
+    if (wname) {
+        rv = fd->ioctl(fd, IOCTL_LZSS_GET_WTOWER, &buf, &sz);
         if (rv) {
-            fprintf(stderr, "[e] cannot get extra\n");
+            fprintf(stderr, "[e] cannot get watchtower\n");
         } else if (!sz) {
-            fprintf(stderr, "[w] image has no extra\n");
+            fprintf(stderr, "[w] image has no watchtower\n");
         } else {
-            rv = write_file(ename, buf, sz);
+            rv = write_file(wname, buf, sz);
         }
         rc |= rv;
     }
@@ -682,12 +682,12 @@ main(int argc, char **argv)
         }
         rc |= rv;
     }
-    if (set_extra) {
-        rv = read_file(set_extra, &buf, &sz);
+    if (set_wtower) {
+        rv = read_file(set_wtower, &buf, &sz);
         if (rv == 0) {
-            rv = fd->ioctl(fd, IOCTL_LZSS_SET_EXTRA, buf, sz);
+            rv = fd->ioctl(fd, IOCTL_LZSS_SET_WTOWER, buf, sz);
             if (rv) {
-                fprintf(stderr, "[e] cannot set extra\n");
+                fprintf(stderr, "[e] cannot set watchtower\n");
             }
             free(buf);
         }

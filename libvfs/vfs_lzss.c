@@ -11,8 +11,8 @@
 struct file_ops_lzss {
     struct file_ops_memory ops;
     FHANDLE other;
-    void *extra;
-    size_t extrasz;
+    void *watchtower;
+    size_t watchsize;
 };
 
 static int
@@ -62,8 +62,8 @@ lzss_fsync(FHANDLE fd)
     if (buf + written != end) {
         return -1;
     }
-    written = other->write(other, ctx->extra, ctx->extrasz);
-    if (written != ctx->extrasz) {
+    written = other->write(other, ctx->watchtower, ctx->watchsize);
+    if (written != ctx->watchsize) {
         return -1;
     }
     other->ftruncate(other, end - buf + written);
@@ -87,7 +87,7 @@ lzss_close(FHANDLE fd)
 
     rv = fd->fsync(fd);
 
-    free(ctx->extra);
+    free(ctx->watchtower);
     memory_close(fd);
     rc = other->close(other);
     return rv ? rv : rc;
@@ -114,20 +114,20 @@ lzss_ioctl(FHANDLE fd, unsigned long req, ...)
             rv = 0;
             break;
         }
-        case IOCTL_LZSS_GET_EXTRA: {
+        case IOCTL_LZSS_GET_WTOWER: {
             void **dst = va_arg(ap, void **);
             size_t *sz = va_arg(ap, size_t *);
-            *dst = ctx->extra;
-            *sz = ctx->extrasz;
+            *dst = ctx->watchtower;
+            *sz = ctx->watchsize;
             rv = 0;
             break;
         }
-        case IOCTL_LZSS_SET_EXTRA: {
-            void *old = ctx->extra;
+        case IOCTL_LZSS_SET_WTOWER: {
+            void *old = ctx->watchtower;
             void *src = va_arg(ap, void *);
             size_t sz = va_arg(ap, size_t);
-            ctx->extra = src;
-            ctx->extrasz = sz;
+            ctx->watchtower = src;
+            ctx->watchsize = sz;
             free(old);
             rv = 0;
             break;
@@ -215,16 +215,16 @@ lzss_reopen(FHANDLE other)
         goto error;
     }
     tail -= csize + 0x180;
-    ctx->extra = malloc(tail);
-    if (!ctx->extra) {
+    ctx->watchtower = malloc(tail);
+    if (!ctx->watchtower) {
         goto error;
     }
-    outlen = other->read(other, ctx->extra, tail);
+    outlen = other->read(other, ctx->watchtower, tail);
     if (outlen != tail) {
-        free(ctx->extra);
+        free(ctx->watchtower);
         goto error;
     }
-    ctx->extrasz = tail;
+    ctx->watchsize = tail;
 
     fd->ioctl = lzss_ioctl;
     fd->fsync = lzss_fsync;
