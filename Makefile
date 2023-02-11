@@ -11,9 +11,10 @@ CFLAGS += -Wno-variadic-macros -Wno-multichar -Wno-four-char-constants -Wno-unus
 CFLAGS += -O2 -I. -g -DiOS10
 CFLAGS += -DDER_MULTIBYTE_TAGS=1 -DDER_TAG_SIZE=8
 CFLAGS += -D__unused="__attribute__((unused))"
+CFLAGS += `pkg-config --cflags openssl`
 
 LD = gcc
-LDFLAGS = -g
+LDFLAGS = -g `pkg-config --libs openssl`
 LDLIBS = -llzfse
 
 AR = ar
